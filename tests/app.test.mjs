@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createApiHandler, createMediaHandler } from '../src/api-app.mjs';
 import { normalizeE164, normalizedInviteState } from '../src/domain.mjs';
 import { MemoryBlobStore } from './memory-store.mjs';
+import { hashSuperAdminPassword } from '../src/super-admin-auth.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,7 +56,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const { dataStore, api, media } = setup();
   const health = await call(api, '/health');
   assert.equal(health.response.status, 200);
-  assert.equal(health.payload.service, 'secret-santa-club-netlify-v5');
+  assert.equal(health.payload.service, 'secret-santa-club-netlify-v6');
   assert.equal(health.payload.storage, 'netlify-blobs');
 
   const creation = await createParty(api);
@@ -74,7 +75,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
 
   const eventKey = dataStore.keys().find((key) => key.startsWith('event/'));
   const storedEvent = dataStore.raw(eventKey);
-  assert.equal(storedEvent.schemaVersion, 5);
+  assert.equal(storedEvent.schemaVersion, 6);
   assert.equal(storedEvent.budgetCents, 2550);
   storedEvent.participants.forEach((participant) => assert.match(participant.recoveryCode, /^[A-HJ-NP-Z2-9]{8}$/));
   const ids = new Set(storedEvent.participants.map((participant) => participant.id));
@@ -191,6 +192,8 @@ test('configurazione statica usa Netlify e non contiene invio WhatsApp automatic
   assert.match(toml, /from = "\/media\/\*"/);
   assert.match(toml, /from = "\/admin\/\*"/);
   assert.match(toml, /to = "\/admin\.html"/);
+  assert.match(toml, /from = "\/super-admin"/);
+  assert.match(toml, /to = "\/super-admin\.html"/);
 
   const adminJs = fs.readFileSync(path.join(ROOT, 'public/js/admin.js'), 'utf8');
   assert.match(adminJs, /openNextInvite/);
@@ -203,7 +206,7 @@ test('configurazione statica usa Netlify e non contiene invio WhatsApp automatic
 
   assert.match(toml, /from = "\/my-events"/);
 
-  for (const file of ['index.html', 'admin.html', 'my-events.html', 'participant.html', 'dashboard.html']) {
+  for (const file of ['index.html', 'admin.html', 'my-events.html', 'participant.html', 'dashboard.html', 'super-admin.html']) {
     assert.equal(fs.existsSync(path.join(ROOT, 'public', file)), true, `${file} deve esistere`);
   }
 });
@@ -607,7 +610,7 @@ test('un evento v4 viene migrato in modo compatibile quando l’admin lo riapre'
     assert.deepEqual(participant.giftProfile, { favoriteColor: '', interests: [], giftStyle: '', avoid: '' });
   });
   const stored = dataStore.raw(eventKey);
-  assert.equal(stored.schemaVersion, 5);
+  assert.equal(stored.schemaVersion, 6);
 
   const lookup = await call(api, '/api/recovery/lookup', {
     method: 'POST',
@@ -615,4 +618,314 @@ test('un evento v4 viene migrato in modo compatibile quando l’admin lo riapre'
     body: JSON.stringify({ phone: '+39 333 1111111' }),
   });
   assert.equal(lookup.payload.rooms.length, 1);
+});
+
+
+function superAdminEnv() {
+  return {
+    SUPERADMIN_USERNAME: 'grande-elfo',
+    SUPERADMIN_PASSWORD_HASH: hashSuperAdminPassword('UnaPasswordMoltoForte!2026', Buffer.alloc(18, 7)),
+    SUPERADMIN_SESSION_SECRET: 'test-session-secret-abcdefghijklmnopqrstuvwxyz-0123456789',
+    SUPERADMIN_SESSION_HOURS: '8',
+  };
+}
+
+async function loginSuperAdmin(api) {
+  const login = await call(api, '/api/super-admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'grande-elfo', password: 'UnaPasswordMoltoForte!2026' }),
+  });
+  assert.equal(login.response.status, 200);
+  const cookie = login.response.headers.get('set-cookie');
+  assert.match(cookie, /ss_superadmin=/);
+  assert.match(cookie, /HttpOnly/i);
+  assert.match(cookie, /SameSite=Strict/i);
+  assert.match(cookie, /Secure/i);
+  return { cookie: cookie.split(';')[0], csrf: login.payload.csrfToken };
+}
+
+function superAdminHeaders(session, extra = {}) {
+  return {
+    Cookie: session.cookie,
+    'X-CSRF-Token': session.csrf,
+    ...extra,
+  };
+}
+
+test('Control Center: login sicuro, catalogo, dettaglio e protezione CSRF', async () => {
+  const { api } = setup(superAdminEnv());
+  const creation = await createParty(api);
+  assert.equal(creation.response.status, 201);
+
+  const unauthorized = await call(api, '/api/super-admin/overview');
+  assert.equal(unauthorized.response.status, 401);
+
+  const wrong = await call(api, '/api/super-admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'grande-elfo', password: 'sbagliata-sbagliata' }),
+  });
+  assert.equal(wrong.response.status, 401);
+
+  const session = await loginSuperAdmin(api);
+  const overview = await call(api, '/api/super-admin/overview?refresh=true', {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(overview.response.status, 200);
+  assert.equal(overview.payload.metrics.roomsTotal, 1);
+  assert.equal(overview.payload.metrics.participants, 4);
+  assert.equal(overview.payload.rooms.length, 1);
+  assert.equal(JSON.stringify(overview.payload.rooms).includes('+39333'), false);
+  assert.equal(JSON.stringify(overview.payload.rooms).includes('searchText'), false);
+
+  const eventId = creation.payload.eventId;
+  const detail = await call(api, `/api/super-admin/events/${eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(detail.response.status, 200);
+  assert.equal(detail.payload.event.participants.length, 4);
+  assert.ok(detail.payload.event.participants[0].phone);
+  assert.ok(detail.payload.event.participants[0].assignedName);
+  assert.ok(detail.payload.event.assignmentHealth.valid);
+
+  const missingCsrf = await call(api, `/api/super-admin/events/${eventId}`, {
+    method: 'PATCH',
+    headers: { Cookie: session.cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location: 'Polo Nord' }),
+  });
+  assert.equal(missingCsrf.response.status, 403);
+
+  const updated = await call(api, `/api/super-admin/events/${eventId}`, {
+    method: 'PATCH',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ location: 'Polo Nord', budget: '30' }),
+  });
+  assert.equal(updated.response.status, 200);
+  assert.equal(updated.payload.event.location, 'Polo Nord');
+  assert.equal(updated.payload.event.budgetCents, 3000);
+
+  const audit = await call(api, '/api/super-admin/audit?limit=30', {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(audit.response.status, 200);
+  assert.ok(audit.payload.audit.some((entry) => entry.action === 'event_updated'));
+});
+
+test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione definitiva', async () => {
+  const { api } = setup(superAdminEnv());
+  const creation = await createParty(api);
+  const adminToken = tokenFrom(creation.payload.adminPath);
+  const publicToken = tokenFrom(creation.payload.publicPath);
+  const admin = await call(api, `/api/admin/${adminToken}`);
+  const participantToken = tokenFrom(admin.payload.event.participants[0].path);
+  const session = await loginSuperAdmin(api);
+  const eventId = creation.payload.eventId;
+
+  const blocked = await call(api, `/api/super-admin/events/${eventId}/status`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ status: 'blocked', reason: 'Controllo del Grande Elfo' }),
+  });
+  assert.equal(blocked.response.status, 200);
+  assert.equal(blocked.payload.event.status, 'blocked');
+
+  const publicBlocked = await call(api, `/api/public/${publicToken}`);
+  assert.equal(publicBlocked.response.status, 423);
+  assert.equal(publicBlocked.payload.code, 'ROOM_BLOCKED');
+  const participantBlocked = await call(api, `/api/participant/${participantToken}`);
+  assert.equal(participantBlocked.response.status, 423);
+  const adminBlocked = await call(api, `/api/admin/${adminToken}`);
+  assert.equal(adminBlocked.response.status, 200);
+  assert.equal(adminBlocked.payload.event.readOnly, true);
+
+  const completed = await call(api, `/api/super-admin/events/${eventId}/status`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ status: 'completed' }),
+  });
+  assert.equal(completed.response.status, 200);
+  const publicCompleted = await call(api, `/api/public/${publicToken}`);
+  assert.equal(publicCompleted.response.status, 200);
+  assert.equal(publicCompleted.payload.event.readOnly, true);
+  const newMessage = await call(api, `/api/public/${publicToken}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ author: 'Anna', message: 'Non dovrebbe partire', emoji: '✨' }),
+  });
+  assert.equal(newMessage.response.status, 423);
+
+  const trashed = await call(api, `/api/super-admin/events/${eventId}`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ reason: 'Evento duplicato' }),
+  });
+  assert.equal(trashed.response.status, 200);
+  assert.equal(trashed.payload.event.status, 'trashed');
+  assert.ok(trashed.payload.event.purgeAfter);
+
+  const lookup = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 333 1111111' }),
+  });
+  assert.deepEqual(lookup.payload.rooms, []);
+
+  const restored = await call(api, `/api/super-admin/events/${eventId}/restore`, {
+    method: 'POST',
+    headers: superAdminHeaders(session),
+  });
+  assert.equal(restored.response.status, 200);
+  assert.equal(restored.payload.event.status, 'completed');
+
+  await call(api, `/api/super-admin/events/${eventId}`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ reason: 'Pulizia finale' }),
+  });
+  const wrongName = await call(api, `/api/super-admin/events/${eventId}/purge`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ confirmName: 'Nome sbagliato' }),
+  });
+  assert.equal(wrongName.response.status, 400);
+  const purged = await call(api, `/api/super-admin/events/${eventId}/purge`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ confirmName: 'Natale Test' }),
+  });
+  assert.equal(purged.response.status, 200);
+  assert.equal((await call(api, `/api/admin/${adminToken}`)).response.status, 404);
+});
+
+test('impostazioni globali: creazione, manutenzione e foto possono essere sospese separatamente', async () => {
+  const { api } = setup(superAdminEnv());
+  const creation = await createParty(api);
+  const admin = await call(api, `/api/admin/${tokenFrom(creation.payload.adminPath)}`);
+  const participantToken = tokenFrom(admin.payload.event.participants[0].path);
+  const session = await loginSuperAdmin(api);
+
+  const settings = await call(api, '/api/super-admin/settings', {
+    method: 'PATCH',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      allowEventCreation: false,
+      allowRecovery: true,
+      allowPhotoUploads: false,
+      allowWallMessages: true,
+      maintenanceMode: false,
+    }),
+  });
+  assert.equal(settings.response.status, 200);
+
+  const deniedCreation = await createParty(api);
+  assert.equal(deniedCreation.response.status, 503);
+  assert.equal(deniedCreation.payload.code, 'CREATION_DISABLED');
+
+  const textOnly = new FormData();
+  textOnly.append('wish', 'Una sciarpa verde');
+  textOnly.append('mood', '🎄');
+  textOnly.append('favoriteColor', 'verde');
+  textOnly.append('giftStyle', 'utile');
+  textOnly.append('interests', JSON.stringify(['moda']));
+  textOnly.append('avoid', 'Lana ruvida');
+  const textSaved = await call(api, `/api/participant/${participantToken}/profile`, { method: 'POST', body: textOnly });
+  assert.equal(textSaved.response.status, 200);
+
+  const withPhoto = new FormData();
+  withPhoto.append('wish', 'Test');
+  withPhoto.append('mood', '🎄');
+  withPhoto.append('interests', '[]');
+  withPhoto.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), 'test.jpg');
+  const photoDenied = await call(api, `/api/participant/${participantToken}/profile`, { method: 'POST', body: withPhoto });
+  assert.equal(photoDenied.response.status, 503);
+  assert.equal(photoDenied.payload.code, 'PHOTO_UPLOADS_DISABLED');
+
+  await call(api, '/api/super-admin/settings', {
+    method: 'PATCH',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ maintenanceMode: true, maintenanceMessage: 'Aggiornamento in corso' }),
+  });
+  const maintenance = await call(api, `/api/admin/${tokenFrom(creation.payload.adminPath)}`);
+  assert.equal(maintenance.response.status, 503);
+  assert.equal(maintenance.payload.error, 'Aggiornamento in corso');
+  assert.equal((await call(api, '/health')).response.status, 200);
+  assert.equal((await call(api, '/api/super-admin/overview', { headers: { Cookie: session.cookie } })).response.status, 200);
+});
+
+test('catalogo super-admin ricostruisce le stanze preesistenti tramite prefisso Blob', async () => {
+  const { api, dataStore } = setup(superAdminEnv());
+  const first = await createParty(api);
+  const second = await createParty(api);
+  assert.equal(first.response.status, 201);
+  assert.equal(second.response.status, 201);
+  await dataStore.delete('system/event-catalog-v1');
+  const session = await loginSuperAdmin(api);
+  const overview = await call(api, '/api/super-admin/overview?refresh=true', { headers: { Cookie: session.cookie } });
+  assert.equal(overview.response.status, 200);
+  assert.equal(overview.payload.rooms.length, 2);
+  assert.equal(overview.payload.metrics.roomsTotal, 2);
+});
+
+test('Control Center: esportazione, duplicazione e rigenerazione delle credenziali personali', async () => {
+  const { api } = setup(superAdminEnv());
+  const creation = await createParty(api);
+  const session = await loginSuperAdmin(api);
+  const eventId = creation.payload.eventId;
+
+  const detail = await call(api, `/api/super-admin/events/${eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  const participant = detail.payload.event.participants[0];
+  const oldCode = participant.recoveryCode;
+  const oldPath = participant.path;
+
+  const csv = await call(api, `/api/super-admin/events/${eventId}/export?format=csv`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(csv.response.status, 200);
+  assert.match(csv.response.headers.get('content-disposition'), /attachment/);
+  assert.match(await csv.response.text(), /"Nome","Telefono"/);
+
+  const json = await call(api, `/api/super-admin/events/${eventId}/export?format=json`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(json.response.status, 200);
+  assert.equal(json.payload.name, 'Natale Test');
+  assert.equal(json.payload.participants.length, 4);
+
+  const newCode = await call(api, `/api/super-admin/events/${eventId}/participants/${participant.id}/recovery-code`, {
+    method: 'POST',
+    headers: superAdminHeaders(session),
+  });
+  assert.equal(newCode.response.status, 200);
+  assert.match(newCode.payload.recoveryCode, /^[A-HJ-NP-Z2-9]{8}$/);
+  assert.notEqual(newCode.payload.recoveryCode, oldCode);
+
+  const newLink = await call(api, `/api/super-admin/events/${eventId}/participants/${participant.id}/link`, {
+    method: 'POST',
+    headers: superAdminHeaders(session),
+  });
+  assert.equal(newLink.response.status, 200);
+  assert.notEqual(newLink.payload.path, oldPath);
+  assert.equal((await call(api, `/api/participant/${tokenFrom(oldPath)}`)).response.status, 404);
+  assert.equal((await call(api, `/api/participant/${tokenFrom(newLink.payload.path)}`)).response.status, 200);
+
+  const duplicate = await call(api, `/api/super-admin/events/${eventId}/duplicate`, {
+    method: 'POST',
+    headers: superAdminHeaders(session),
+  });
+  assert.equal(duplicate.response.status, 201);
+  assert.notEqual(duplicate.payload.eventId, eventId);
+
+  const duplicateDetail = await call(api, `/api/super-admin/events/${duplicate.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(duplicateDetail.response.status, 200);
+  assert.equal(duplicateDetail.payload.event.name, 'Natale Test (copia)');
+  assert.equal(duplicateDetail.payload.event.participants.length, 4);
+  assert.equal(duplicateDetail.payload.event.messages.length, 0);
+  assert.equal(duplicateDetail.payload.event.participants.some((item) => item.photoUrl || item.revealedAt), false);
+  assert.notEqual(duplicateDetail.payload.event.adminToken, detail.payload.event.adminToken);
+  assert.notEqual(duplicateDetail.payload.event.publicToken, detail.payload.event.publicToken);
 });

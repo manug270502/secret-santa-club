@@ -1,40 +1,33 @@
 # Changelog
 
-## 5.0.0 - Budget, recupero inviti e profili regalo
+## 6.0.0
 
-- corretto il dimensionamento del campo data sugli schermi mobili e rafforzati gli override per Safari iOS;
-- aggiunto budget facoltativo in creazione, modifica admin, invito, pagina personale e dashboard;
-- aggiunta la pagina `/my-events` per cercare le feste associate a un numero;
-- aggiunto codice elfo personale per sbloccare in sicurezza link e abbinamento;
-- aggiunta visualizzazione coperta del nome estratto con pulsante mostra/nascondi;
-- aggiunto profilo regalo con colore, passioni, stile preferito e cose da evitare;
-- aggiunte card regalo orizzontali nella dashboard comune;
-- aggiunto indice telefonico con chiave hash e aggiornamento concorrente tramite ETag;
-- aggiunta migrazione compatibile degli eventi v4 alla prima riapertura;
-- aggiornato il messaggio WhatsApp con budget, codice elfo e pagina di recupero;
-- ampliati test automatici, verifiche responsive e documentazione.
+- aggiunto Control Center riservato su `/super-admin`;
+- autenticazione con hash scrypt, sessione HMAC, cookie HttpOnly/SameSite, CSRF e throttle dei tentativi;
+- catalogo globale con ricerca e metriche aggregate;
+- lifecycle stanze: attiva, bloccata, conclusa, archiviata e cestino;
+- modifica evento e policy, gestione partecipanti, codici, link, foto, messaggi e abbinamenti;
+- audit log, modalità manutenzione e interruttori globali;
+- backup JSON, esportazione CSV, duplicazione e riparazione indici;
+- cancellazione reversibile e cancellazione definitiva con conferma nominale;
+- catalogo e indice telefonico ottimizzati per evitare letture sequenziali;
+- handler Blob riutilizzati nelle Functions calde;
+- cache CDN breve per la dashboard pubblica e cache immutabile per foto/asset;
+- polling dashboard ridotto e sospeso quando la scheda non è visibile;
+- alleggerimento di animazioni e rendering su mobile;
+- feedback coerente di sola lettura nelle stanze bloccate/concluse/archiviate;
+- schema eventi aggiornato alla versione 6 senza cambiare gli store Blob.
 
-## 4.1.0 - Netlify runtime hotfix
+## 5.0.0
 
-- inizializzazione di Netlify Blobs spostata dentro ogni invocazione delle Functions;
-- CSP aggiornata con l'hash specifico richiesto dal deploy;
-- mantenuti invariati gli store `secret-santa-data-v2` e `secret-santa-media-v2`.
+- budget evento;
+- recupero inviti tramite numero e codice elfo;
+- profili regalo e card scorrevoli;
+- correzioni responsive per iPhone;
+- schema eventi versione 5.
 
-## 4.0.0 - Inviti WhatsApp gratuiti
+## 4.0.0
 
-- rimosso l'invio a pagamento e ogni dipendenza da provider esterni;
-- aggiunto il flusso click-to-chat con destinatario, testo e link gia compilati;
-- aggiunto **Apri il prossimo** per procedere una persona alla volta;
-- aggiunta spunta persistente **Chat WhatsApp aperta** e reset per singolo partecipante;
-- mantenuti il flag **Parteciperai anche tu?** e i miglioramenti responsive mobile;
-- normalizzazione server dei numeri in formato E.164.
-
-## 3.0.0
-
-- admin partecipante opzionale;
-- nuova interfaccia mobile;
-- prima sperimentazione di invio tramite provider esterno, poi rimossa.
-
-## 2.0.0
-
-- conversione per Netlify Functions e Netlify Blobs.
+- inviti WhatsApp gratuiti click-to-chat;
+- admin partecipante;
+- miglioramenti responsive.

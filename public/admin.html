@@ -7,9 +7,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Regia della festa — Secret Santa Club</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/styles.css">
-  <script src="/js/common.js" defer></script>
-  <script src="/js/admin.js" defer></script>
+  <link rel="stylesheet" href="/css/styles.css?v=6.0.0">
+  <script src="/js/common.js?v=6.0.0" defer></script>
+  <script src="/js/admin.js?v=6.0.0" defer></script>
 </head>
 <body class="page-admin">
   <div class="snow-layer snow-subtle" data-snow aria-hidden="true"></div>
@@ -31,6 +31,10 @@
         <button class="icon-button light" id="copyAdminLink" type="button" title="Copia il link admin">🔗</button>
         <button class="icon-button light" id="editEventButton" type="button" title="Modifica evento">✎</button>
       </div>
+    </section>
+
+    <section class="admin-room-status-banner" id="adminRoomStatusBanner" hidden>
+      <span aria-hidden="true">🧊</span><div><strong id="adminRoomStatusTitle">Stanza in sola lettura</strong><p id="adminRoomStatusText"></p></div>
     </section>
 
     <section class="stats-grid admin-stats">

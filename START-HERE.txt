@@ -1,32 +1,47 @@
-SECRET SANTA CLUB - NETLIFY FREE v5.0
+SECRET SANTA CLUB - NETLIFY FREE v6.0
+====================================
 
+AVVIO LOCALE
 1. Apri questa cartella in Visual Studio Code.
-2. Per provarla in locale esegui: npm start
+2. Esegui: npm start
 3. Apri: http://localhost:3000
-4. Per verificare tutto esegui: npm run check
 
-PER AGGIORNARE IL SITO LIVE
-
-Copia questi file nel repository gia collegato a Netlify, senza cancellare .git, poi:
-
+VERIFICA COMPLETA
 npm run check
-git add -A
-git commit -m "Budget, recupero inviti e profili regalo"
-git push
 
-Netlify pubblichera automaticamente il nuovo deploy.
+AGGIORNAMENTO DEL SITO LIVE
+1. Copia questi file nel repository gia collegato a GitHub/Netlify.
+2. Non eliminare la cartella nascosta .git.
+3. Esegui:
 
-NOVITA PRINCIPALI
+   npm run check
+   git add -A
+   git commit -m "Control Center super admin e ottimizzazioni v6"
+   git push
 
-- budget facoltativo per regalo;
-- correzione del campo data su mobile/iPhone;
-- pagina /my-events per ritrovare le feste dal numero di telefono;
-- codice elfo personale per proteggere link e abbinamento;
-- colore, passioni, stile regalo e cose da evitare;
-- card delle preferenze nella dashboard comune.
+CONTROL CENTER
+URL: https://TUO-SITO.netlify.app/super-admin
 
-EVENTI PRECEDENTI
+Prima del primo accesso configura su Netlify:
+- SUPERADMIN_USERNAME
+- SUPERADMIN_PASSWORD_HASH
+- SUPERADMIN_SESSION_SECRET
+- SUPERADMIN_SESSION_HOURS (facoltativa, default 8)
 
-Dopo il deploy apri una volta la cabina admin di ogni vecchio evento. Il sistema crea i codici elfo e l'indice di recupero senza perdere dati. Per i vecchi inviti, reinvia il messaggio oppure comunica il codice mostrato in admin.
+Genera l'hash:
+npm run superadmin:hash -- 'Una password lunga e unica'
 
-Guida completa: docs/GUIDA-PUBBLICAZIONE-NETLIFY.md
+Genera il segreto:
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+
+IMPORTANTE
+- Non inserire mai la password in chiaro su GitHub.
+- Gli store Blob restano secret-santa-data-v2 e secret-santa-media-v2.
+- Gli eventi e le foto esistenti non vengono cancellati.
+- Dopo aver aggiunto o modificato le variabili Netlify, avvia un nuovo deploy.
+
+GUIDE
+- README.md
+- AGGIORNAMENTO-V6.md
+- docs/CONTROL-CENTER-SUPER-ADMIN.md
+- docs/GUIDA-PUBBLICAZIONE-NETLIFY.md

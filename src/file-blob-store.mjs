@@ -126,4 +126,29 @@ export class FileBlobStore {
       await Promise.allSettled([fs.rm(files.data, { force: true }), fs.rm(files.meta, { force: true })]);
     });
   }
+
+  async list(options = {}) {
+    await this.ensureDirectory();
+    const prefix = String(options.prefix || '');
+    const names = await fs.readdir(this.directory).catch((error) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    const blobs = [];
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const encoded = name.slice(0, -5);
+      let key;
+      try { key = Buffer.from(encoded, 'base64url').toString('utf8'); } catch { continue; }
+      if (!key.startsWith(prefix)) continue;
+      try {
+        const record = JSON.parse(await fs.readFile(path.join(this.directory, name), 'utf8'));
+        blobs.push({ key, etag: record.etag || '' });
+      } catch {
+        // Ignore incomplete temporary/local entries.
+      }
+    }
+    blobs.sort((left, right) => left.key.localeCompare(right.key));
+    return { blobs, directories: [] };
+  }
 }

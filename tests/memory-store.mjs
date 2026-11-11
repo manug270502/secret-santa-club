@@ -68,6 +68,15 @@ export class MemoryBlobStore {
     this.entries.delete(key);
   }
 
+  async list(options = {}) {
+    const prefix = String(options.prefix || '');
+    const blobs = [...this.entries.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, entry]) => ({ key, etag: entry.etag }))
+      .sort((left, right) => left.key.localeCompare(right.key));
+    return { blobs, directories: [] };
+  }
+
   keys() {
     return [...this.entries.keys()];
   }

@@ -7,9 +7,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Il tuo pacchetto segreto — Secret Santa Club</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/styles.css">
-  <script src="/js/common.js" defer></script>
-  <script src="/js/participant.js" defer></script>
+  <link rel="stylesheet" href="/css/styles.css?v=6.0.0">
+  <script src="/js/common.js?v=6.0.0" defer></script>
+  <script src="/js/participant.js?v=6.0.0" defer></script>
 </head>
 <body class="page-participant">
   <div class="snow-layer" data-snow aria-hidden="true"></div>
@@ -21,6 +21,10 @@
   <main class="join-shell">
     <section class="join-card" id="joinLoading">
       <div class="gift-loader large">🎁</div><h1>Il tuo pacchetto sta arrivando…</h1><p>Controlliamo il fiocco e teniamo lontani gli spoiler.</p>
+    </section>
+
+    <section class="admin-room-status-banner participant-status-banner" id="participantRoomStatus" hidden>
+      <span aria-hidden="true">📌</span><div><strong id="participantRoomStatusTitle">Stanza in sola lettura</strong><p id="participantRoomStatusText"></p></div>
     </section>
 
     <section class="join-card profile-card" id="profileView" hidden>

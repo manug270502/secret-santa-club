@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const wallForm = UI.qs('#wallForm');
   let eventData = null;
   let countdownTimer = null;
+  let lastUpdatedAt = '';
+  let loadInFlight = null;
 
   const prompts = [
     'Chi comprerebbe il regalo all’ultimo secondo?',
@@ -41,6 +43,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     'Ho visto un film natalizio',
     'Ho mantenuto il segreto',
   ];
+
+
+  function renderRoomStatus() {
+    const banner = UI.qs('#dashboardRoomStatus');
+    const status = eventData.status || 'active';
+    const messagesAllowed = !eventData.readOnly && eventData.policies?.allowMessages !== false;
+    const showBanner = eventData.readOnly || !messagesAllowed;
+    banner.hidden = !showBanner;
+    banner.className = `admin-room-status-banner dashboard-room-status-banner ${status}`;
+    if (status === 'completed') {
+      UI.qs('#dashboardRoomStatusTitle').textContent = 'La festa è conclusa';
+      UI.qs('#dashboardRoomStatusText').textContent = 'Foto, preferenze e messaggi restano visibili; il muro è ora in sola lettura.';
+    } else {
+      UI.qs('#dashboardRoomStatusTitle').textContent = 'Muro degli auguri in pausa';
+      UI.qs('#dashboardRoomStatusText').textContent = 'Puoi continuare a esplorare la stanza e i giochi, ma non pubblicare nuovi messaggi.';
+    }
+    wallForm.querySelectorAll('input, select, textarea, button').forEach((control) => { control.disabled = !messagesAllowed; });
+  }
 
   function renderHeader() {
     document.title = `${eventData.name} — Sala comune`;
@@ -208,6 +228,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderAll() {
+    renderRoomStatus();
     renderHeader();
     renderPeople();
     renderGiftProfiles();
@@ -216,29 +237,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function load(initial = false) {
-    try {
-      const result = await UI.api(`/api/public/${partyToken}`);
-      eventData = result.event;
-      renderAll();
-      if (initial) {
-        loading.hidden = true;
-        app.hidden = false;
-        clearInterval(countdownTimer);
-        countdownTimer = window.setInterval(updateCountdown, 30000);
+    if (loadInFlight) return loadInFlight;
+    loadInFlight = (async () => {
+      try {
+        const result = await UI.api(`/api/public/${partyToken}`);
+        const next = result.event;
+        const needsRender = initial || !lastUpdatedAt || next.updatedAt !== lastUpdatedAt;
+        eventData = next;
+        lastUpdatedAt = next.updatedAt || '';
+        if (needsRender) renderAll();
+        else updateCountdown();
+        if (initial) {
+          loading.hidden = true;
+          app.hidden = false;
+          clearInterval(countdownTimer);
+          countdownTimer = window.setInterval(updateCountdown, 30000);
+        }
+      } catch (error) {
+        if (initial) {
+          loading.innerHTML = '';
+          const icon = document.createElement('div');
+          icon.className = 'gift-loader';
+          icon.textContent = '🧊';
+          const title = document.createElement('h1');
+          title.textContent = 'La sala è chiusa';
+          const text = document.createElement('p');
+          text.textContent = error.message;
+          loading.append(icon, title, text);
+        }
+      } finally {
+        loadInFlight = null;
       }
-    } catch (error) {
-      if (initial) {
-        loading.innerHTML = '';
-        const icon = document.createElement('div');
-        icon.className = 'gift-loader';
-        icon.textContent = '🧊';
-        const title = document.createElement('h1');
-        title.textContent = 'La sala è chiusa';
-        const text = document.createElement('p');
-        text.textContent = error.message;
-        loading.append(icon, title, text);
-      }
-    }
+    })();
+    return loadInFlight;
   }
 
   function renderBingo() {
@@ -295,7 +326,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ticks += 1;
       if (ticks >= 13) {
         clearInterval(timer);
-        button.disabled = false;
+        button.disabled = Boolean(eventData?.readOnly || eventData?.policies?.allowMessages === false);
         UI.playBell();
       }
     }, 75);
@@ -314,6 +345,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   wallForm.addEventListener('submit', async (submitEvent) => {
     submitEvent.preventDefault();
+    if (eventData?.readOnly || eventData?.policies?.allowMessages === false) {
+      UI.toast('Il muro degli auguri è in sola lettura.', 'error');
+      return;
+    }
     const button = wallForm.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
@@ -357,5 +392,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderBingo();
   setPrompt();
   await load(true);
-  window.setInterval(() => load(false), 20000);
+  window.setInterval(() => { if (!document.hidden) load(false); }, 45000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false); });
 });

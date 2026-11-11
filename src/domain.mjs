@@ -1,14 +1,34 @@
 import crypto from 'node:crypto';
 
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code = '') {
     super(message);
     this.name = 'HttpError';
     this.status = status;
+    this.code = code;
   }
 }
 
 const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export const EVENT_STATUSES = new Set(['active', 'blocked', 'completed', 'archived', 'trashed']);
+
+export const DEFAULT_EVENT_POLICIES = Object.freeze({
+  allowMessages: true,
+  allowPhotoUploads: true,
+  allowRecovery: true,
+  allowParticipantEdits: true,
+  allowReveal: true,
+});
+
+export const DEFAULT_SYSTEM_SETTINGS = Object.freeze({
+  allowEventCreation: true,
+  allowRecovery: true,
+  allowPhotoUploads: true,
+  allowWallMessages: true,
+  maintenanceMode: false,
+  maintenanceMessage: 'Il laboratorio degli elfi è in manutenzione. Torna tra poco.',
+});
 
 export const GIFT_COLOR_OPTIONS = new Set([
   'rosso',
@@ -136,6 +156,116 @@ export function normalizeGiftProfile(value = {}) {
   };
 }
 
+export function normalizeEventStatus(value) {
+  const status = cleanText(value, 30).toLowerCase();
+  return EVENT_STATUSES.has(status) ? status : 'active';
+}
+
+export function normalizeEventPolicies(value = {}) {
+  const normalized = {};
+  for (const [key, fallback] of Object.entries(DEFAULT_EVENT_POLICIES)) {
+    normalized[key] = typeof value?.[key] === 'boolean' ? value[key] : fallback;
+  }
+  return normalized;
+}
+
+export function normalizeSystemSettings(value = {}) {
+  return {
+    allowEventCreation: typeof value?.allowEventCreation === 'boolean'
+      ? value.allowEventCreation
+      : DEFAULT_SYSTEM_SETTINGS.allowEventCreation,
+    allowRecovery: typeof value?.allowRecovery === 'boolean'
+      ? value.allowRecovery
+      : DEFAULT_SYSTEM_SETTINGS.allowRecovery,
+    allowPhotoUploads: typeof value?.allowPhotoUploads === 'boolean'
+      ? value.allowPhotoUploads
+      : DEFAULT_SYSTEM_SETTINGS.allowPhotoUploads,
+    allowWallMessages: typeof value?.allowWallMessages === 'boolean'
+      ? value.allowWallMessages
+      : DEFAULT_SYSTEM_SETTINGS.allowWallMessages,
+    maintenanceMode: typeof value?.maintenanceMode === 'boolean'
+      ? value.maintenanceMode
+      : DEFAULT_SYSTEM_SETTINGS.maintenanceMode,
+    maintenanceMessage: cleanText(
+      value?.maintenanceMessage || DEFAULT_SYSTEM_SETTINGS.maintenanceMessage,
+      180,
+    ) || DEFAULT_SYSTEM_SETTINGS.maintenanceMessage,
+  };
+}
+
+export function ensureEventManagementFields(event, now = new Date().toISOString()) {
+  let changed = false;
+  if (Number(event.schemaVersion || 0) < 6) {
+    event.schemaVersion = 6;
+    changed = true;
+  }
+  if (event.budgetCents === undefined) {
+    event.budgetCents = null;
+    changed = true;
+  }
+  const normalizedStatus = normalizeEventStatus(event.status);
+  if (event.status !== normalizedStatus) {
+    event.status = normalizedStatus;
+    changed = true;
+  }
+  if (!Object.hasOwn(event, 'statusReason')) {
+    event.statusReason = '';
+    changed = true;
+  } else {
+    const reason = cleanText(event.statusReason, 180);
+    if (reason !== event.statusReason) {
+      event.statusReason = reason;
+      changed = true;
+    }
+  }
+  if (!event.statusUpdatedAt) {
+    event.statusUpdatedAt = event.updatedAt || event.createdAt || now;
+    changed = true;
+  }
+  if (!Object.hasOwn(event, 'previousStatus')) {
+    event.previousStatus = '';
+    changed = true;
+  }
+  if (!Object.hasOwn(event, 'trashedAt')) {
+    event.trashedAt = null;
+    changed = true;
+  }
+  if (!Object.hasOwn(event, 'purgeAfter')) {
+    event.purgeAfter = null;
+    changed = true;
+  }
+  const policies = normalizeEventPolicies(event.policies);
+  if (JSON.stringify(event.policies || {}) !== JSON.stringify(policies)) {
+    event.policies = policies;
+    changed = true;
+  }
+  if (!Array.isArray(event.messages)) {
+    event.messages = [];
+    changed = true;
+  }
+  if (!Array.isArray(event.participants)) {
+    event.participants = [];
+    changed = true;
+  }
+  event.participants.forEach((participant) => {
+    if (!cleanRecoveryCode(participant.recoveryCode)) {
+      participant.recoveryCode = recoveryCode();
+      changed = true;
+    }
+    const profile = normalizeGiftProfile(participant.giftProfile);
+    if (JSON.stringify(participant.giftProfile || {}) !== JSON.stringify(profile)) {
+      participant.giftProfile = profile;
+      changed = true;
+    }
+    const invite = normalizedInviteState(participant.invite);
+    if (JSON.stringify(participant.invite || {}) !== JSON.stringify(invite)) {
+      participant.invite = invite;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 export function assignSingleCycle(participants) {
   const order = [...participants];
   for (let index = order.length - 1; index > 0; index -= 1) {
@@ -145,6 +275,33 @@ export function assignSingleCycle(participants) {
   order.forEach((participant, index) => {
     participant.assignedId = order[(index + 1) % order.length].id;
   });
+}
+
+export function validateAssignments(event) {
+  const participants = Array.isArray(event?.participants) ? event.participants : [];
+  const ids = new Set(participants.map((participant) => participant.id));
+  const assigned = participants.map((participant) => participant.assignedId);
+  const unknownTargets = assigned.filter((id) => !ids.has(id));
+  const selfAssignments = participants
+    .filter((participant) => participant.id === participant.assignedId)
+    .map((participant) => participant.id);
+  const counts = new Map();
+  assigned.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+  const duplicateTargets = [...counts.entries()]
+    .filter(([id, count]) => ids.has(id) && count > 1)
+    .map(([id]) => id);
+  const missingTargets = [...ids].filter((id) => !counts.has(id));
+  return {
+    valid: participants.length >= 3
+      && unknownTargets.length === 0
+      && selfAssignments.length === 0
+      && duplicateTargets.length === 0
+      && missingTargets.length === 0,
+    unknownTargets,
+    selfAssignments,
+    duplicateTargets,
+    missingTargets,
+  };
 }
 
 export function nextCelebrationDate() {
@@ -238,7 +395,7 @@ export function buildEvent(payload) {
   const now = new Date().toISOString();
   const organizerParticipant = participants.find((participant) => participant.isOrganizer);
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: token(10),
     name,
     organizer: organizerParticipates ? organizerName : organizerName || 'Admin della festa',
@@ -249,6 +406,13 @@ export function buildEvent(payload) {
     budgetCents,
     createdAt: now,
     updatedAt: now,
+    status: 'active',
+    statusReason: '',
+    statusUpdatedAt: now,
+    previousStatus: '',
+    trashedAt: null,
+    purgeAfter: null,
+    policies: normalizeEventPolicies(),
     adminToken: token(24),
     publicToken: token(20),
     participants,

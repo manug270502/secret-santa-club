@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const cleanBase = (value) => String(value || '').trim().replace(/\/$/, '');
   const pathUrl = (path) => `${cleanBase(state.base)}${path}`;
   const inviteWasOpened = (participant) => participant.invite?.status === 'opened';
+  const isReadOnly = () => Boolean(state.event?.readOnly || state.event?.status !== 'active');
 
   function setLoadingError(message) {
     loading.innerHTML = '';
@@ -25,6 +26,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     const text = document.createElement('p');
     text.textContent = message;
     loading.append(icon, title, text);
+  }
+
+
+  function renderRoomStatus() {
+    const banner = UI.qs('#adminRoomStatusBanner');
+    const status = state.event?.status || 'active';
+    const readOnly = isReadOnly();
+    banner.hidden = !readOnly;
+    banner.className = `admin-room-status-banner ${status}`;
+    const labels = {
+      blocked: ['Stanza congelata', state.event.statusReason || 'Il super-admin ha temporaneamente bloccato modifiche e nuove attività.'],
+      completed: ['Festa conclusa', 'La stanza resta consultabile, ma dati, messaggi e sorteggio sono in sola lettura.'],
+      archived: ['Stanza archiviata', 'Questa regia è consultabile solo per controllo; i percorsi degli invitati non sono disponibili.'],
+      trashed: ['Stanza nel cestino', 'La stanza è in attesa di ripristino o eliminazione definitiva dal Control Center.'],
+    };
+    const [title, text] = labels[status] || ['Stanza in sola lettura', 'Le modifiche sono temporaneamente disattivate.'];
+    UI.qs('#adminRoomStatusTitle').textContent = title;
+    UI.qs('#adminRoomStatusText').textContent = text;
+    ['editEventButton', 'redrawButton'].forEach((id) => { const control = UI.qs(`#${id}`); if (control) control.disabled = readOnly; });
   }
 
   function renderMeta() {
@@ -103,11 +123,12 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
     body.append(title, text);
     box.append(icon, body);
 
-    openNextButton.disabled = pending === 0;
-    openNextButton.textContent = pending ? `Apri il prossimo (${pending})` : 'Inviti completati';
+    openNextButton.disabled = pending === 0 || isReadOnly();
+    openNextButton.textContent = isReadOnly() ? 'Inviti in pausa' : (pending ? `Apri il prossimo (${pending})` : 'Inviti completati');
   }
 
   async function markInviteOpened(participant) {
+    if (isReadOnly()) return;
     const previous = participant.invite || {};
     const now = new Date().toISOString();
     participant.invite = {
@@ -129,6 +150,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
   }
 
   async function resetInviteOpened(participant) {
+    if (isReadOnly()) return;
     try {
       const result = await UI.api(`/api/admin/${adminToken}/invites/${participant.id}/reset`, { method: 'POST' });
       participant.invite = result.invite;
@@ -141,6 +163,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
   }
 
   function launchWhatsApp(participant) {
+    if (isReadOnly()) { UI.toast('Gli inviti sono in pausa finché la stanza non torna attiva.', 'error'); return; }
     if (!participant.phone) {
       UI.toast(`Aggiungi prima il numero WhatsApp di ${participant.name}.`, 'error');
       return;
@@ -248,6 +271,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
       phoneButton.className = 'icon-button invite-phone-button';
       phoneButton.textContent = '✎';
       phoneButton.title = `Modifica il numero WhatsApp di ${participant.name}`;
+      phoneButton.disabled = isReadOnly();
       phoneButton.addEventListener('click', async () => {
         const value = window.prompt(`Numero WhatsApp di ${participant.name}`, participant.phone || '+39 ');
         if (value === null) return;
@@ -275,6 +299,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
         resetButton.className = 'icon-button invite-refresh-button';
         resetButton.textContent = '↺';
         resetButton.title = `Segna ${participant.name} come ancora da invitare`;
+        resetButton.disabled = isReadOnly();
         resetButton.addEventListener('click', () => resetInviteOpened(participant));
         actions.appendChild(resetButton);
       }
@@ -287,9 +312,15 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
       whatsAppButton.title = participant.phone
         ? `Apri la chat WhatsApp di ${participant.name} con il messaggio già pronto`
         : 'Aggiungi prima un numero WhatsApp';
-      whatsAppButton.setAttribute('aria-disabled', participant.phone ? 'false' : 'true');
+      whatsAppButton.setAttribute('aria-disabled', participant.phone && !isReadOnly() ? 'false' : 'true');
+      if (isReadOnly()) whatsAppButton.classList.add('disabled');
       whatsAppButton.innerHTML = `<span>💬</span><b>${inviteWasOpened(participant) ? 'Apri di nuovo' : 'Apri WhatsApp'}</b>`;
       whatsAppButton.addEventListener('click', (event) => {
+        if (isReadOnly()) {
+          event.preventDefault();
+          UI.toast('Gli inviti sono in pausa finché la stanza non torna attiva.', 'error');
+          return;
+        }
         if (!participant.phone) {
           event.preventDefault();
           UI.toast(`Aggiungi prima il numero WhatsApp di ${participant.name}.`, 'error');
@@ -332,6 +363,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
       remove.className = 'icon-button';
       remove.textContent = '×';
       remove.title = 'Elimina messaggio';
+      remove.disabled = isReadOnly();
       remove.addEventListener('click', async () => {
         try {
           await UI.api(`/api/admin/${adminToken}/messages/${message.id}`, { method: 'DELETE' });
@@ -348,6 +380,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
   }
 
   function render() {
+    renderRoomStatus();
     renderMeta();
     renderSharingStatus();
     renderParticipants();
@@ -397,6 +430,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
   });
 
   openNextButton.addEventListener('click', () => {
+    if (isReadOnly()) { UI.toast('La stanza è in sola lettura.', 'error'); return; }
     const next = state.event.participants.find((participant) => participant.phone && !inviteWasOpened(participant));
     if (!next) {
       UI.toast('Hai già aperto tutte le chat. Controlla di avere premuto Invia in WhatsApp.');
@@ -415,6 +449,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
   });
 
   UI.qs('#editEventButton').addEventListener('click', () => {
+    if (isReadOnly()) { UI.toast('La stanza è in sola lettura.', 'error'); return; }
     editForm.elements.name.value = state.event.name;
     editForm.elements.organizer.value = state.event.organizer;
     editForm.elements.date.value = state.event.date || '';
@@ -425,6 +460,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
 
   editForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (isReadOnly()) { UI.toast('La stanza è in sola lettura.', 'error'); return; }
     try {
       await UI.api(`/api/admin/${adminToken}`, {
         method: 'PATCH',
@@ -445,6 +481,7 @@ Se perdi il link, ritrovalo qui: ${recoveryUrl}
   });
 
   UI.qs('#redrawButton').addEventListener('click', async () => {
+    if (isReadOnly()) { UI.toast('La stanza è in sola lettura.', 'error'); return; }
     const confirmed = window.confirm('Vuoi davvero rifare tutti gli abbinamenti? I link personali resteranno uguali.');
     if (!confirmed) return;
     try {

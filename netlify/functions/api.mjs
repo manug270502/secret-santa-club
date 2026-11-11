@@ -2,23 +2,32 @@ import { getStore } from '@netlify/blobs';
 import { createApiHandler } from '../../src/api-app.mjs';
 
 const STORE_REGION = 'eu-central-1';
+let cachedRegion = '';
+let cachedHandler = null;
 
-export default async function handler(request) {
+function getApiHandler() {
   const region = process.env.BLOBS_REGION || STORE_REGION;
+  if (cachedHandler && cachedRegion === region) return cachedHandler;
 
-  // Initialize Blobs inside the invocation so Netlify's runtime context
-  // (site ID/token) is already available when getStore() is called.
+  // Most ordinary reads can use the faster eventual path. Repository methods
+  // explicitly request strong consistency for writes, authentication and
+  // immediate post-write reads.
   const dataStore = getStore({
     name: 'secret-santa-data-v2',
     region,
-    consistency: 'strong',
+    consistency: 'eventual',
   });
   const mediaStore = getStore({
     name: 'secret-santa-media-v2',
     region,
-    consistency: 'strong',
+    consistency: 'eventual',
   });
 
-  const apiHandler = createApiHandler({ dataStore, mediaStore, env: process.env });
-  return apiHandler(request);
+  cachedRegion = region;
+  cachedHandler = createApiHandler({ dataStore, mediaStore, env: process.env });
+  return cachedHandler;
+}
+
+export default async function handler(request) {
+  return getApiHandler()(request);
 }

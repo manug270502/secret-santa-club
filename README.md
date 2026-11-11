@@ -1,42 +1,82 @@
-# Secret Santa Club - Netlify Free v5
+# Secret Santa Club - Netlify Free v6
 
-Applicazione completa per organizzare un Secret Santa online con HTTPS, sorteggio privato, foto, budget, preferenze regalo, recupero protetto degli inviti e condivisione WhatsApp gratuita in modalita click-to-chat.
+Applicazione completa per organizzare Secret Santa online con HTTPS, sorteggio privato, foto, budget, preferenze regalo, recupero protetto degli inviti, inviti WhatsApp gratuiti click-to-chat e un Control Center riservato al proprietario del sito.
 
-## Novita della versione 5
+## Novità della versione 6
 
-- correzione mirata del campo data sui dispositivi mobili, inclusi gli schermi stretti di iPhone;
-- budget facoltativo per ogni regalo, visibile nell'invito e nella stanza comune;
-- pagina **Le mie feste** per ritrovare gli inviti associati a un numero di telefono;
-- protezione del recupero con un **codice elfo** personale di 8 caratteri;
-- nome estratto inizialmente coperto e mostrabile con il pulsante a forma di occhio;
-- profilo regalo con colore preferito, passioni, stile del regalo e cose da evitare;
-- card orizzontali e scorrevoli nella dashboard comune con le preferenze di tutti;
-- piena compatibilita con feste, link e foto gia salvati nelle versioni precedenti.
+- pagina nascosta `/super-admin` protetta da username, password con hash, cookie `HttpOnly` e controllo CSRF;
+- catalogo di tutte le stanze, comprese quelle create nelle versioni precedenti;
+- ricerca per nome stanza, organizzatore, partecipante, telefono o ID;
+- stati **attiva**, **bloccata**, **conclusa**, **archiviata** e **cestino**;
+- modifica completa di evento, permessi e partecipanti;
+- visualizzazione protetta di telefoni, link, codici elfo e abbinamenti;
+- rimozione foto e messaggi, rigenerazione link/codici e riparazione degli indici;
+- duplicazione di una stanza senza copiare foto, messaggi o rivelazioni;
+- esportazione CSV e backup JSON;
+- registro delle operazioni critiche;
+- interruttori globali per creazione feste, recupero inviti, foto, muro e manutenzione;
+- ottimizzazioni a Netlify Blobs, cache breve della dashboard pubblica, asset con cache lunga, meno animazioni su mobile e polling intelligente.
 
 ## Funzioni principali
 
-- l'admin crea la festa e sceglie se partecipare al sorteggio;
-- ogni partecipante riceve un link personale, un codice elfo e un abbinamento segreto;
-- la regia apre la chat WhatsApp corretta con destinatario, testo, link e codice gia compilati;
-- dentro WhatsApp resta soltanto da premere **Invia**;
-- ogni invitato puo caricare o scattare una foto, compilare le preferenze regalo e aprire il pacchetto;
-- chi perde il messaggio puo cercare le proprie feste tramite numero e sbloccarle con il codice elfo;
-- la dashboard comune mostra partecipanti, foto, budget, preferenze, countdown, giochi e muro degli auguri, ma non gli abbinamenti;
-- eventi e foto vengono conservati nei Netlify Blobs gia usati dalle versioni precedenti.
+- l'admin di una festa crea l'evento e sceglie se partecipare;
+- ogni partecipante riceve link personale, codice elfo e abbinamento segreto;
+- la regia apre WhatsApp con destinatario e messaggio già compilati: resta solo da premere **Invia**;
+- gli invitati possono caricare/scattare una foto, compilare preferenze e scoprire il destinatario del regalo;
+- chi perde il messaggio ritrova le proprie feste tramite numero e codice elfo;
+- la dashboard comune mostra partecipanti, foto, budget, preferenze e muro, ma non gli abbinamenti;
+- il super-admin può controllare e moderare tutte le stanze da un unico pannello.
 
-## Recupero sicuro degli inviti
+## Accesso al Control Center
 
-Il solo numero di telefono mostra soltanto un elenco essenziale delle feste associate. Per ottenere il link personale e vedere l'abbinamento gia rivelato serve anche il codice elfo ricevuto nell'invito.
+La pagina è disponibile all'indirizzo:
 
-Questo evita che una persona possa inserire il numero di un amico e leggere il suo Secret Santa. Il numero viene usato per creare un indice con hash; l'indice non contiene il numero in chiaro. Il numero originale resta nel record dell'evento, accessibile solo dalla cabina admin.
+```text
+https://TUO-SITO.netlify.app/super-admin
+```
 
-Il codice elfo viene incluso automaticamente nel messaggio WhatsApp. L'admin puo anche copiarlo dalla regia e comunicarlo di nuovo in caso di necessita.
+Non è collegata dalla homepage. Prima del primo accesso configura su Netlify:
 
-## Perche WhatsApp richiede il tap finale
+```text
+SUPERADMIN_USERNAME
+SUPERADMIN_PASSWORD_HASH
+SUPERADMIN_SESSION_SECRET
+SUPERADMIN_SESSION_HOURS
+```
 
-Il progetto non usa API WhatsApp Business, automazioni del browser o servizi non ufficiali. Il link `wa.me` apre il normale WhatsApp dell'admin con destinatario e messaggio pronti. Questa e la soluzione gratuita e a basso rischio: WhatsApp mantiene il controllo dell'invio e l'admin preme soltanto il pulsante finale.
+Genera l'hash della password in locale:
 
-Lo stato **Chat WhatsApp aperta** significa solo che il collegamento e stato aperto. Non dimostra che il messaggio sia stato inviato, consegnato o letto.
+```powershell
+npm run superadmin:hash -- 'Una password lunga e unica'
+```
+
+Genera il segreto di sessione:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+```
+
+Non salvare mai la password in chiaro nel repository. La procedura completa è in [`docs/CONTROL-CENTER-SUPER-ADMIN.md`](docs/CONTROL-CENTER-SUPER-ADMIN.md).
+
+## Stati delle stanze
+
+- **Attiva**: funzionamento normale.
+- **Bloccata**: invitati e percorsi pubblici vengono congelati; la regia resta consultabile in sola lettura.
+- **Conclusa**: la stanza resta visibile, ma non accetta modifiche, messaggi o nuove rivelazioni.
+- **Archiviata**: sparisce dai percorsi normali ed è disponibile solo nel Control Center.
+- **Cestino**: dati conservati e ripristinabili; la cancellazione definitiva richiede di digitare esattamente il nome della stanza.
+
+## Ottimizzazioni introdotte
+
+- le Netlify Functions riutilizzano handler e connessioni Blob quando l'istanza resta calda;
+- le foto sono lette con consistenza eventuale e servite con cache immutabile;
+- la dashboard pubblica usa una cache CDN di pochi secondi, mentre admin, partecipante, recupero e super-admin restano `no-store`;
+- il recupero inviti usa un indice telefonico ricco senza caricare in sequenza tutte le stanze;
+- le migrazioni vengono scritte soltanto quando lo schema è realmente vecchio;
+- il catalogo super-admin viene mantenuto incrementale e può essere ricostruito su richiesta;
+- il frontend evita refresh sovrapposti, sospende il polling in background e non ridisegna la dashboard se i dati non sono cambiati;
+- immagini lazy/async, meno neve e coriandoli sui dispositivi piccoli e `content-visibility` sulle sezioni lunghe;
+- CSS, JavaScript e asset sono versionati e memorizzabili a lungo dal browser.
 
 ## Avvio locale
 
@@ -52,13 +92,18 @@ Apri:
 http://localhost:3000
 ```
 
-Per cancellare i dati locali:
+Per provare anche il super-admin in locale:
+
+1. copia `.env.example` in `.env`;
+2. inserisci username, hash e segreto;
+3. riavvia `npm start`;
+4. apri `http://localhost:3000/super-admin`.
+
+I dati locali sono salvati in `.local-data`, esclusa da Git. Per azzerarli:
 
 ```bash
 npm run reset:local
 ```
-
-I dati locali vengono salvati in `.local-data`, esclusa da Git.
 
 ## Verifiche
 
@@ -66,73 +111,48 @@ I dati locali vengono salvati in `.local-data`, esclusa da Git.
 npm run check
 ```
 
-Il comando controlla struttura Netlify, sintassi JavaScript e flussi automatici, compresi privacy, migrazione, recupero inviti, budget e profili regalo.
+Il comando controlla struttura Netlify, sintassi JavaScript, CSP, asset versionati e flussi automatici, compresi privacy, recupero inviti, lifecycle delle stanze, login, sessione, CSRF, manutenzione e cancellazione definitiva.
 
-## Aggiornare il sito gia collegato a Netlify
+## Aggiornare il sito collegato a Netlify
 
-Copia i file di questa versione dentro il repository locale gia pubblicato, senza eliminare la cartella `.git`, quindi esegui:
+Copia i file della v6 nel repository locale senza eliminare `.git`, quindi esegui:
 
 ```bash
 npm run check
+git status
 git add -A
-git commit -m "Budget, recupero inviti e profili regalo"
+git commit -m "Control Center super admin e ottimizzazioni v6"
 git push
 ```
 
-Netlify avviera automaticamente il nuovo deploy. Non sono richieste nuove variabili ambiente, API o servizi esterni.
-
-## Eventi gia esistenti
-
-Gli store restano invariati:
+Dopo il deploy configura le variabili `SUPERADMIN_*` e avvia un nuovo deploy. Gli store restano invariati:
 
 ```text
 secret-santa-data-v2
 secret-santa-media-v2
 ```
 
-Dopo il deploy, apri una volta il link admin di ogni vecchia festa che vuoi rendere recuperabile. Il sistema aggiungera in modo compatibile codice elfo, profilo regalo vuoto e indice telefonico, senza cambiare sorteggio, link, foto o messaggi.
-
-Gli inviti inviati prima della versione 5 non contengono il codice elfo. Per usare il recupero, apri la cabina admin e reinvia l'invito oppure comunica il codice mostrato accanto al partecipante.
-
-## Configurazione Netlify
-
-Il file `netlify.toml` contiene gia:
-
-- build command: `npm run build`;
-- publish directory: `public`;
-- functions directory: `netlify/functions`;
-- redirect per API, media, recupero e pagine dinamiche;
-- intestazioni HTTPS, noindex e sicurezza.
-
-Variabili facoltative:
-
-```text
-PUBLIC_BASE_URL=
-ENABLE_DEMO=false
-BLOBS_REGION=eu-central-1
-```
-
-Su Netlify normalmente `PUBLIC_BASE_URL` deve restare vuota: il dominio HTTPS viene rilevato automaticamente.
+Eventi, fotografie, link, sorteggi e messaggi già presenti non vengono cancellati.
 
 ## Struttura
 
 ```text
 public/                 frontend statico
 netlify/functions/      Functions API e media
-src/                    dominio, repository e handler API
-scripts/                build check e reset locale
-tests/                  test automatici
-docs/                   guida, privacy e architettura
-mockups/                mockup di riferimento
+src/                    dominio, repository, autenticazione e handler
+scripts/                verifiche, reset e generatore hash
+ tests/                 test automatici
+ docs/                  guide e architettura
+ mockups/               mockup di riferimento
 ```
 
-## Privacy
+## Privacy e sicurezza
 
-- token admin, token partecipante, telefoni e abbinamenti non vengono esposti nella dashboard comune;
-- il recupero richiede numero e codice personale prima di restituire il link privato;
-- il nome estratto viene restituito dal recupero solo se era gia stato rivelato dal partecipante;
-- le preferenze regalo sono intenzionalmente visibili nella stanza comune;
-- il link admin deve essere trattato come una password;
-- il link della stanza comune va condiviso soltanto con il gruppo.
+- token, telefoni, codici e abbinamenti non sono esposti nella dashboard comune;
+- il recupero richiede numero e codice personale;
+- il super-admin usa password hashata, sessione firmata, cookie `HttpOnly`, `SameSite=Strict`, CSRF e blocco temporaneo dopo tentativi ripetuti;
+- i dati sensibili nel Control Center sono coperti fino al clic sull'occhio;
+- ogni azione critica viene registrata nell'audit log;
+- il link admin di una festa, il codice elfo e le credenziali super-admin devono essere trattati come credenziali private.
 
 Consulta [`docs/GUIDA-PUBBLICAZIONE-NETLIFY.md`](docs/GUIDA-PUBBLICAZIONE-NETLIFY.md) per l'aggiornamento passo-passo.

@@ -7,9 +7,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>La sala comune — Secret Santa Club</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/styles.css">
-  <script src="/js/common.js" defer></script>
-  <script src="/js/dashboard.js" defer></script>
+  <link rel="stylesheet" href="/css/styles.css?v=6.0.0">
+  <script src="/js/common.js?v=6.0.0" defer></script>
+  <script src="/js/dashboard.js?v=6.0.0" defer></script>
 </head>
 <body class="page-dashboard">
   <div class="snow-layer snow-subtle" data-snow aria-hidden="true"></div>
@@ -38,6 +38,10 @@
         <p><b id="progressText">0 di 0</b> partecipanti hanno scoperto il proprio abbinamento.</p>
         <span class="privacy-ribbon">🔒 Nessuno vede gli abbinamenti</span>
       </div>
+    </section>
+
+    <section class="admin-room-status-banner dashboard-room-status-banner" id="dashboardRoomStatus" hidden>
+      <span aria-hidden="true">📌</span><div><strong id="dashboardRoomStatusTitle">Stanza in sola lettura</strong><p id="dashboardRoomStatusText"></p></div>
     </section>
 
     <section class="party-content">

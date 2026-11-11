@@ -138,6 +138,7 @@
       image.src = participant.photoUrl;
       image.alt = `Foto di ${participant.name}`;
       image.loading = 'lazy';
+      image.decoding = 'async';
       element.appendChild(image);
     } else {
       element.textContent = initials(participant.name);
@@ -155,7 +156,7 @@
   function addSnow() {
     const layer = qs('[data-snow]');
     if (!layer || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const count = window.innerWidth < 700 ? 26 : 48;
+    const count = window.innerWidth < 700 ? 14 : 32;
     const fragment = document.createDocumentFragment();
     for (let index = 0; index < count; index += 1) {
       const flake = document.createElement('span');
@@ -176,7 +177,8 @@
     if (!layer || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const colors = ['#c5334a', '#f0bd4d', '#2f7358', '#ffffff', '#ef9f4d'];
     const fragment = document.createDocumentFragment();
-    for (let index = 0; index < 90; index += 1) {
+    const pieceCount = window.innerWidth < 700 ? 46 : 76;
+    for (let index = 0; index < pieceCount; index += 1) {
       const piece = document.createElement('i');
       piece.className = 'confetti-piece';
       piece.style.left = `${Math.random() * 100}%`;

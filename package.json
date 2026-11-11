@@ -1,9 +1,9 @@
 {
   "name": "secret-santa-club-netlify",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "private": true,
   "type": "module",
-  "description": "Secret Santa per Netlify con budget, recupero inviti protetto, profili regalo, dashboard comune e WhatsApp click-to-chat gratuito.",
+  "description": "Secret Santa per Netlify con Control Center super-admin, gestione stanze, recupero protetto, profili regalo e WhatsApp click-to-chat gratuito.",
   "scripts": {
     "dev": "node server-local.mjs",
     "start": "node server-local.mjs",
@@ -11,7 +11,8 @@
     "reset:local": "node scripts/reset-local.mjs",
     "build": "node scripts/build-check.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "superadmin:hash": "node scripts/generate-superadmin-hash.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "11.1.9"

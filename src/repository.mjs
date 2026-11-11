@@ -1,16 +1,26 @@
 import crypto from 'node:crypto';
 import {
   HttpError,
+  assignSingleCycle,
+  buildEvent,
   cleanRecoveryCode,
+  cleanText,
+  ensureEventManagementFields,
   normalizeE164,
   normalizeGiftProfile,
+  normalizeSystemSettings,
   phoneIndexToken,
   recoveryCode,
   token,
+  validateAssignments,
 } from './domain.mjs';
 
 const EVENT_PREFIX = 'event/';
 const INDEX_PREFIX = 'index/';
+const CATALOG_KEY = 'system/event-catalog-v1';
+const SETTINGS_KEY = 'system/settings-v1';
+const AUDIT_PREFIX = 'audit/';
+const LOGIN_PREFIX = 'security/login/';
 
 function eventKey(eventId) {
   return `${EVENT_PREFIX}${eventId}`;
@@ -35,45 +45,193 @@ function sameRecoveryCode(left, right) {
   return first.length > 0 && first.length === second.length && crypto.timingSafeEqual(first, second);
 }
 
+function eventStatus(event) {
+  return ['active', 'blocked', 'completed', 'archived', 'trashed'].includes(event?.status)
+    ? event.status
+    : 'active';
+}
+
+function eventPolicies(event) {
+  return {
+    allowMessages: event?.policies?.allowMessages !== false,
+    allowPhotoUploads: event?.policies?.allowPhotoUploads !== false,
+    allowRecovery: event?.policies?.allowRecovery !== false,
+    allowParticipantEdits: event?.policies?.allowParticipantEdits !== false,
+    allowReveal: event?.policies?.allowReveal !== false,
+  };
+}
+
+function participantProfileComplete(participant) {
+  const profile = normalizeGiftProfile(participant?.giftProfile);
+  return Boolean(
+    participant?.photoUrl
+    || participant?.wish
+    || profile.favoriteColor
+    || profile.giftStyle
+    || profile.avoid
+    || profile.interests.length,
+  );
+}
+
+export function buildEventSummary(event) {
+  const participants = Array.isArray(event?.participants) ? event.participants : [];
+  const messages = Array.isArray(event?.messages) ? event.messages : [];
+  const phones = participants.map((participant) => normalizeE164(participant.phone)).filter(Boolean);
+  const searchText = [
+    event?.id,
+    event?.name,
+    event?.organizer,
+    event?.location,
+    ...participants.map((participant) => participant.name),
+    ...phones,
+  ].filter(Boolean).join(' ').toLocaleLowerCase('it-IT');
+  return {
+    id: event.id,
+    name: event.name || 'Festa senza nome',
+    organizer: event.organizer || 'Admin della festa',
+    organizerParticipates: Boolean(event.organizerParticipates),
+    date: event.date || '',
+    location: event.location || '',
+    budgetCents: Number.isInteger(event.budgetCents) ? event.budgetCents : null,
+    status: eventStatus(event),
+    statusReason: cleanText(event.statusReason, 180),
+    createdAt: event.createdAt || '',
+    updatedAt: event.updatedAt || event.createdAt || '',
+    statusUpdatedAt: event.statusUpdatedAt || event.updatedAt || event.createdAt || '',
+    trashedAt: event.trashedAt || null,
+    purgeAfter: event.purgeAfter || null,
+    participantCount: participants.length,
+    phoneCount: phones.length,
+    photoCount: participants.filter((participant) => participant.photoUrl).length,
+    profileCount: participants.filter(participantProfileComplete).length,
+    revealedCount: participants.filter((participant) => participant.revealedAt).length,
+    messageCount: messages.length,
+    searchText,
+  };
+}
+
+function recoveryRoomSummary(event, participant) {
+  return {
+    version: 1,
+    eventId: event.id,
+    participantId: participant.id,
+    name: event.name,
+    organizer: event.organizer,
+    date: event.date || '',
+    location: event.location || '',
+    budgetCents: Number.isInteger(event.budgetCents) ? event.budgetCents : null,
+    status: eventStatus(event),
+    allowRecovery: eventPolicies(event).allowRecovery,
+    participantName: participant.name,
+    profileComplete: participantProfileComplete(participant),
+    revealed: Boolean(participant.revealedAt),
+    updatedAt: event.updatedAt || event.createdAt || '',
+  };
+}
+
+function recoverySignature(event) {
+  return JSON.stringify({
+    name: event.name,
+    organizer: event.organizer,
+    date: event.date,
+    location: event.location,
+    budgetCents: event.budgetCents,
+    status: eventStatus(event),
+    allowRecovery: eventPolicies(event).allowRecovery,
+    participants: (event.participants || []).map((participant) => ({
+      id: participant.id,
+      name: participant.name,
+      phone: normalizeE164(participant.phone),
+      profileComplete: participantProfileComplete(participant),
+      revealed: Boolean(participant.revealedAt),
+    })),
+  });
+}
+
+function catalogComparable(summary) {
+  const copy = { ...summary };
+  delete copy.updatedAt;
+  return JSON.stringify(copy);
+}
+
+async function inChunks(items, size, operation) {
+  const results = [];
+  for (let index = 0; index < items.length; index += size) {
+    const batch = items.slice(index, index + size);
+    results.push(...await Promise.all(batch.map(operation)));
+  }
+  return results;
+}
+
 export class SecretSantaRepository {
   constructor({ dataStore, mediaStore }) {
     if (!dataStore || !mediaStore) throw new Error('Data store e media store sono obbligatori.');
     this.dataStore = dataStore;
     this.mediaStore = mediaStore;
+    this.settingsCache = null;
   }
 
-  async mutatePhoneIndex(phone, mutator, { attempts = 10 } = {}) {
-    const key = phoneIndexKey(phone);
-    if (!key) return null;
+  async mutateJsonRecord(key, initialValue, mutator, {
+    attempts = 10,
+    metadata = {},
+  } = {}) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const current = await this.dataStore.getWithMetadata(key, {
         type: 'json',
         consistency: 'strong',
       });
-      const draft = current?.data && Array.isArray(current.data.entries)
-        ? { entries: [...current.data.entries] }
-        : { entries: [] };
+      const draft = current?.data ? clone(current.data) : clone(initialValue);
+      const result = await mutator(draft);
+      const writeOptions = current
+        ? { onlyIfMatch: current.etag, metadata }
+        : { onlyIfNew: true, metadata };
+      const write = await this.dataStore.setJSON(key, draft, writeOptions);
+      if (write.modified) return { record: clone(draft), result };
+      await new Promise((resolve) => setTimeout(resolve, 10 + attempt * 8));
+    }
+    throw new HttpError(409, 'I dati sono stati aggiornati contemporaneamente. Riprova.');
+  }
+
+  async mutatePhoneIndex(phone, mutator, { attempts = 10 } = {}) {
+    const key = phoneIndexKey(phone);
+    if (!key) return null;
+    return this.mutateJsonRecord(key, { entries: [] }, async (draft) => {
+      if (!Array.isArray(draft.entries)) draft.entries = [];
       const result = await mutator(draft);
       draft.entries = draft.entries
         .filter((entry) => entry?.eventId && entry?.participantId)
         .slice(-250);
-      const options = current
-        ? { onlyIfMatch: current.etag, metadata: { type: 'phone-index', updatedAt: new Date().toISOString() } }
-        : { onlyIfNew: true, metadata: { type: 'phone-index', createdAt: new Date().toISOString() } };
-      const write = await this.dataStore.setJSON(key, draft, options);
-      if (write.modified) return { record: clone(draft), result };
-      await new Promise((resolve) => setTimeout(resolve, 10 + attempt * 8));
-    }
-    throw new HttpError(409, 'L’indice degli inviti è stato aggiornato contemporaneamente. Riprova.');
+      return result;
+    }, {
+      attempts,
+      metadata: { type: 'phone-index', updatedAt: new Date().toISOString() },
+    });
   }
 
-  async addPhoneIndexEntry(phone, eventId, participantId) {
+  async upsertPhoneIndexEntry(event, participant) {
+    const normalized = normalizeE164(participant?.phone);
+    if (!normalized) return null;
+    const room = recoveryRoomSummary(event, participant);
+    return this.mutatePhoneIndex(normalized, (record) => {
+      const index = record.entries.findIndex((entry) => (
+        entry.eventId === event.id && entry.participantId === participant.id
+      ));
+      const value = { eventId: event.id, participantId: participant.id, room };
+      if (index >= 0) record.entries[index] = value;
+      else record.entries.push(value);
+      return { added: index < 0 };
+    });
+  }
+
+  async addPhoneIndexEntry(phone, eventId, participantId, room = null) {
     const normalized = normalizeE164(phone);
     if (!normalized) return null;
     return this.mutatePhoneIndex(normalized, (record) => {
-      const exists = record.entries.some((entry) => entry.eventId === eventId && entry.participantId === participantId);
-      if (!exists) record.entries.push({ eventId, participantId });
-      return { added: !exists };
+      const index = record.entries.findIndex((entry) => entry.eventId === eventId && entry.participantId === participantId);
+      const value = { eventId, participantId, ...(room ? { room } : {}) };
+      if (index >= 0) record.entries[index] = value;
+      else record.entries.push(value);
+      return { added: index < 0 };
     });
   }
 
@@ -87,11 +245,72 @@ export class SecretSantaRepository {
     });
   }
 
-  async getPhoneIndex(phone) {
+  async getPhoneIndex(phone, { consistency = 'strong' } = {}) {
     const key = phoneIndexKey(phone);
     if (!key) return { entries: [] };
-    const record = await this.dataStore.get(key, { type: 'json', consistency: 'strong' });
+    const record = await this.dataStore.get(key, { type: 'json', consistency });
     return record && Array.isArray(record.entries) ? record : { entries: [] };
+  }
+
+  async upsertCatalogSummary(event, { complete } = {}) {
+    const summary = buildEventSummary(event);
+    return this.mutateJsonRecord(CATALOG_KEY, { version: 1, complete: false, entries: {} }, (catalog) => {
+      catalog.version = 1;
+      if (!catalog.entries || typeof catalog.entries !== 'object' || Array.isArray(catalog.entries)) catalog.entries = {};
+      catalog.entries[event.id] = summary;
+      if (typeof complete === 'boolean') catalog.complete = complete;
+      else if (typeof catalog.complete !== 'boolean') catalog.complete = false;
+      catalog.updatedAt = new Date().toISOString();
+      return { summary };
+    }, { metadata: { type: 'event-catalog', updatedAt: new Date().toISOString() } });
+  }
+
+  async removeCatalogEntry(eventId) {
+    return this.mutateJsonRecord(CATALOG_KEY, { version: 1, complete: false, entries: {} }, (catalog) => {
+      if (!catalog.entries || typeof catalog.entries !== 'object') catalog.entries = {};
+      const existed = Boolean(catalog.entries[eventId]);
+      delete catalog.entries[eventId];
+      catalog.updatedAt = new Date().toISOString();
+      return { removed: existed };
+    }, { metadata: { type: 'event-catalog', updatedAt: new Date().toISOString() } });
+  }
+
+  async listEventKeys() {
+    if (typeof this.dataStore.list !== 'function') return [];
+    const result = await this.dataStore.list({ prefix: EVENT_PREFIX });
+    const blobs = Array.isArray(result?.blobs) ? result.blobs : [];
+    return blobs.map((blob) => blob.key).filter((key) => key.startsWith(EVENT_PREFIX));
+  }
+
+  async rebuildEventCatalog() {
+    const keys = await this.listEventKeys();
+    const events = (await inChunks(keys, 12, async (key) => {
+      const event = await this.dataStore.get(key, { type: 'json', consistency: 'eventual' });
+      return event || null;
+    })).filter(Boolean);
+    const entries = Object.fromEntries(events.map((event) => [event.id, buildEventSummary(event)]));
+    const now = new Date().toISOString();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const current = await this.dataStore.getWithMetadata(CATALOG_KEY, { type: 'json', consistency: 'strong' });
+      const catalog = { version: 1, complete: true, entries, updatedAt: now };
+      const options = current
+        ? { onlyIfMatch: current.etag, metadata: { type: 'event-catalog', rebuiltAt: now } }
+        : { onlyIfNew: true, metadata: { type: 'event-catalog', rebuiltAt: now } };
+      const write = await this.dataStore.setJSON(CATALOG_KEY, catalog, options);
+      if (write.modified) return clone(catalog);
+      await new Promise((resolve) => setTimeout(resolve, 15 + attempt * 10));
+    }
+    throw new HttpError(409, 'Impossibile ricostruire l’indice delle stanze. Riprova.');
+  }
+
+  async listEventSummaries({ refresh = false } = {}) {
+    let catalog = refresh
+      ? null
+      : await this.dataStore.get(CATALOG_KEY, { type: 'json', consistency: 'strong' });
+    if (!catalog?.complete || !catalog.entries || typeof catalog.entries !== 'object') {
+      catalog = await this.rebuildEventCatalog();
+    }
+    return Object.values(catalog.entries || {}).map(clone);
   }
 
   async createEvent(event) {
@@ -124,9 +343,10 @@ export class SecretSantaRepository {
       }
       for (const participant of event.participants) {
         if (!normalizeE164(participant.phone)) continue;
-        await this.addPhoneIndexEntry(participant.phone, event.id, participant.id);
+        await this.upsertPhoneIndexEntry(event, participant);
         phoneWrites.push({ phone: participant.phone, participantId: participant.id });
       }
+      await this.upsertCatalogSummary(event).catch((error) => console.error('Catalog update failed:', error));
     } catch (error) {
       await Promise.allSettled(phoneWrites.map((entry) => this.removePhoneIndexEntry(entry.phone, event.id, entry.participantId)));
       await Promise.allSettled(writes.map((key) => this.dataStore.delete(key)));
@@ -136,159 +356,523 @@ export class SecretSantaRepository {
     return clone(event);
   }
 
-  async lookupIndex(kind, value) {
-    return this.dataStore.get(indexKey(kind, value), { type: 'json', consistency: 'strong' });
+  async lookupIndex(kind, value, { consistency = 'strong' } = {}) {
+    return this.dataStore.get(indexKey(kind, value), { type: 'json', consistency });
   }
 
-  async getEventEntry(eventId) {
+  async getEventEntry(eventId, { consistency = 'strong' } = {}) {
     const entry = await this.dataStore.getWithMetadata(eventKey(eventId), {
       type: 'json',
-      consistency: 'strong',
+      consistency,
     });
     if (!entry) return null;
     return { event: clone(entry.data), etag: entry.etag };
   }
 
-  async getEventById(eventId) {
-    const entry = await this.getEventEntry(eventId);
+  async getEventById(eventId, options = {}) {
+    const entry = await this.getEventEntry(eventId, options);
     return entry?.event || null;
   }
 
-  async getEventByAdminToken(adminToken) {
-    const index = await this.lookupIndex('admin', adminToken);
+  async getEventByAdminToken(adminToken, options = {}) {
+    const index = await this.lookupIndex('admin', adminToken, options);
     if (!index?.eventId) return null;
-    return this.getEventById(index.eventId);
+    return this.getEventById(index.eventId, options);
   }
 
-  async getEventByPublicToken(publicToken) {
-    const index = await this.lookupIndex('public', publicToken);
+  async getEventByPublicToken(publicToken, options = {}) {
+    const index = await this.lookupIndex('public', publicToken, options);
     if (!index?.eventId) return null;
-    return this.getEventById(index.eventId);
+    return this.getEventById(index.eventId, options);
   }
 
-  async getParticipantByToken(participantToken) {
-    const index = await this.lookupIndex('participant', participantToken);
+  async getParticipantByToken(participantToken, options = {}) {
+    const index = await this.lookupIndex('participant', participantToken, options);
     if (!index?.eventId || !index?.participantId) return null;
-    const event = await this.getEventById(index.eventId);
+    const event = await this.getEventById(index.eventId, options);
     if (!event) return null;
     const participant = event.participants.find((item) => item.id === index.participantId);
     if (!participant) return null;
     return { event, participant, eventId: event.id, participantId: participant.id };
   }
 
-  async mutateEvent(eventId, mutator, { attempts = 8 } = {}) {
+  async syncPhoneIndexesForEvent(event, previousEvent = null) {
+    const previousById = new Map((previousEvent?.participants || []).map((participant) => [participant.id, participant]));
+    const currentIds = new Set(event.participants.map((participant) => participant.id));
+    const removals = [];
+    for (const previous of previousEvent?.participants || []) {
+      const oldPhone = normalizeE164(previous.phone);
+      const current = event.participants.find((participant) => participant.id === previous.id);
+      const newPhone = normalizeE164(current?.phone);
+      if (oldPhone && (!currentIds.has(previous.id) || oldPhone !== newPhone)) {
+        removals.push(this.removePhoneIndexEntry(oldPhone, event.id, previous.id));
+      }
+    }
+    await Promise.allSettled(removals);
+    await Promise.allSettled(event.participants.map((participant) => this.upsertPhoneIndexEntry(event, participant)));
+    return { previousById };
+  }
+
+  async mutateEvent(eventId, mutator, { attempts = 8, syncRecovery = false } = {}) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const entry = await this.getEventEntry(eventId);
+      const entry = await this.getEventEntry(eventId, { consistency: 'strong' });
       if (!entry) return null;
+      const original = clone(entry.event);
       const draft = entry.event;
+      ensureEventManagementFields(draft);
+      const beforeSummary = buildEventSummary(draft);
+      const beforeRecovery = recoverySignature(draft);
       const result = await mutator(draft);
+      ensureEventManagementFields(draft);
       draft.updatedAt = new Date().toISOString();
       const write = await this.dataStore.setJSON(eventKey(eventId), draft, {
         onlyIfMatch: entry.etag,
         metadata: { type: 'event', updatedAt: draft.updatedAt },
       });
-      if (write.modified) return { event: clone(draft), result };
+      if (write.modified) {
+        const afterSummary = buildEventSummary(draft);
+        if (catalogComparable(beforeSummary) !== catalogComparable(afterSummary)) {
+          await this.upsertCatalogSummary(draft).catch((error) => console.error('Catalog update failed:', error));
+        }
+        if (syncRecovery || beforeRecovery !== recoverySignature(draft)) {
+          await this.syncPhoneIndexesForEvent(draft, original).catch((error) => console.error('Recovery index update failed:', error));
+        }
+        return { event: clone(draft), result };
+      }
       await new Promise((resolve) => setTimeout(resolve, 12 + attempt * 9));
     }
     throw new HttpError(409, 'La festa è stata aggiornata contemporaneamente. Riprova tra un istante.');
   }
 
-  async mutateEventByAdminToken(adminToken, mutator) {
+  async mutateEventByAdminToken(adminToken, mutator, options = {}) {
     const index = await this.lookupIndex('admin', adminToken);
     if (!index?.eventId) return null;
-    return this.mutateEvent(index.eventId, mutator);
+    return this.mutateEvent(index.eventId, mutator, options);
   }
 
-  async mutateEventByPublicToken(publicToken, mutator) {
+  async mutateEventByPublicToken(publicToken, mutator, options = {}) {
     const index = await this.lookupIndex('public', publicToken);
     if (!index?.eventId) return null;
-    return this.mutateEvent(index.eventId, mutator);
+    return this.mutateEvent(index.eventId, mutator, options);
   }
 
-  async mutateParticipantByToken(participantToken, mutator) {
+  async mutateParticipantByToken(participantToken, mutator, options = {}) {
     const index = await this.lookupIndex('participant', participantToken);
     if (!index?.eventId || !index?.participantId) return null;
     return this.mutateEvent(index.eventId, async (event) => {
       const participant = event.participants.find((item) => item.id === index.participantId);
       if (!participant) throw new HttpError(404, 'Invito non valido.');
       return mutator({ event, participant });
+    }, options);
+  }
+
+  async ensureEventReady(eventId, { consistency = 'strong' } = {}) {
+    let entry = await this.getEventEntry(eventId, { consistency });
+    if (!entry && consistency !== 'strong') {
+      entry = await this.getEventEntry(eventId, { consistency: 'strong' });
+    }
+    if (!entry) return null;
+    const draft = entry.event;
+    const changed = ensureEventManagementFields(draft);
+    if (!changed) return draft;
+    // Le migrazioni sono scritture: prima di applicarle rileggiamo sempre in modo forte.
+    if (consistency !== 'strong') return this.ensureEventReady(eventId, { consistency: 'strong' });
+    draft.updatedAt = new Date().toISOString();
+    const write = await this.dataStore.setJSON(eventKey(eventId), draft, {
+      onlyIfMatch: entry.etag,
+      metadata: { type: 'event', migratedAt: draft.updatedAt },
     });
+    if (!write.modified) return this.ensureEventReady(eventId, { consistency: 'strong' });
+    await Promise.allSettled([
+      this.upsertCatalogSummary(draft),
+      this.syncPhoneIndexesForEvent(draft, entry.event),
+    ]);
+    return clone(draft);
   }
 
   async ensureEventRecovery(eventId) {
-    let event = await this.getEventById(eventId);
-    if (!event) return null;
-    const needsMigration = Number(event.schemaVersion || 0) < 5
-      || event.budgetCents === undefined
-      || event.participants.some((participant) => (
-        !cleanRecoveryCode(participant.recoveryCode)
-        || !participant.giftProfile
-      ));
-
-    if (needsMigration) {
-      const migrated = await this.mutateEvent(eventId, (draft) => {
-        draft.schemaVersion = 5;
-        if (draft.budgetCents === undefined) draft.budgetCents = null;
-        draft.participants.forEach((participant) => {
-          if (!cleanRecoveryCode(participant.recoveryCode)) participant.recoveryCode = recoveryCode();
-          participant.giftProfile = normalizeGiftProfile(participant.giftProfile);
-        });
-        return { migrated: true };
-      });
-      event = migrated?.event || event;
-    }
-
-    await Promise.all(event.participants.map((participant) => (
-      normalizeE164(participant.phone)
-        ? this.addPhoneIndexEntry(participant.phone, event.id, participant.id)
-        : Promise.resolve(null)
-    )));
-    return event;
+    return this.ensureEventReady(eventId);
   }
 
   async ensureEventRecoveryByAdminToken(adminToken) {
     const index = await this.lookupIndex('admin', adminToken);
     if (!index?.eventId) return null;
-    return this.ensureEventRecovery(index.eventId);
+    return this.ensureEventReady(index.eventId);
   }
 
   async ensureEventRecoveryByPublicToken(publicToken) {
-    const index = await this.lookupIndex('public', publicToken);
+    let index = await this.lookupIndex('public', publicToken, { consistency: 'eventual' });
+    if (!index?.eventId) index = await this.lookupIndex('public', publicToken, { consistency: 'strong' });
     if (!index?.eventId) return null;
-    return this.ensureEventRecovery(index.eventId);
+    return this.ensureEventReady(index.eventId, { consistency: 'eventual' });
   }
 
   async ensureEventRecoveryByParticipantToken(participantToken) {
     const index = await this.lookupIndex('participant', participantToken);
     if (!index?.eventId) return null;
-    return this.ensureEventRecovery(index.eventId);
+    return this.ensureEventReady(index.eventId);
   }
 
-  async findRecoveryRoomsByPhone(phone) {
+  async findRecoveryRoomSummariesByPhone(phone) {
     const normalized = normalizeE164(phone);
     if (!normalized) return [];
-    const index = await this.getPhoneIndex(normalized);
+    const index = await this.getPhoneIndex(normalized, { consistency: 'strong' });
     const rooms = [];
     const stale = [];
     for (const entry of index.entries) {
-      const event = await this.getEventById(entry.eventId);
+      if (entry?.room?.version === 1) {
+        if (entry.room.status === 'active' || entry.room.status === 'completed') {
+          if (entry.room.allowRecovery !== false) rooms.push(clone(entry.room));
+        }
+        continue;
+      }
+      const event = await this.getEventById(entry.eventId, { consistency: 'strong' });
       const participant = event?.participants?.find((item) => item.id === entry.participantId);
       if (!event || !participant || normalizeE164(participant.phone) !== normalized) {
         stale.push(entry);
         continue;
       }
-      rooms.push({ event, participant });
+      await this.upsertPhoneIndexEntry(event, participant).catch(() => {});
+      const room = recoveryRoomSummary(event, participant);
+      if ((room.status === 'active' || room.status === 'completed') && room.allowRecovery !== false) rooms.push(room);
     }
     await Promise.allSettled(stale.map((entry) => this.removePhoneIndexEntry(normalized, entry.eventId, entry.participantId)));
     return rooms;
   }
 
+  async findRecoveryRoomsByPhone(phone) {
+    const summaries = await this.findRecoveryRoomSummariesByPhone(phone);
+    return summaries.map((room) => ({
+      event: {
+        id: room.eventId,
+        name: room.name,
+        organizer: room.organizer,
+        date: room.date,
+        location: room.location,
+        budgetCents: room.budgetCents,
+        status: room.status,
+      },
+      participant: {
+        id: room.participantId,
+        name: room.participantName,
+        photoUrl: room.profileComplete ? 'present' : '',
+        revealedAt: room.revealed ? 'present' : null,
+      },
+    }));
+  }
+
   async getRecoveryAccess({ phone, eventId, code }) {
     const normalized = normalizeE164(phone);
     if (!normalized) return null;
-    const rooms = await this.findRecoveryRoomsByPhone(normalized);
-    const found = rooms.find((room) => room.event.id === eventId && sameRecoveryCode(room.participant.recoveryCode, code));
-    return found ? { event: clone(found.event), participant: clone(found.participant) } : null;
+    const event = await this.ensureEventReady(eventId);
+    if (!event) return null;
+    const participant = event.participants.find((item) => normalizeE164(item.phone) === normalized);
+    if (!participant || !sameRecoveryCode(participant.recoveryCode, code)) return null;
+    return { event: clone(event), participant: clone(participant) };
+  }
+
+  async getSystemSettings({ consistency = 'eventual', useCache = true } = {}) {
+    const now = Date.now();
+    if (useCache && this.settingsCache && this.settingsCache.expiresAt > now) {
+      return clone(this.settingsCache.value);
+    }
+    const record = await this.dataStore.get(SETTINGS_KEY, { type: 'json', consistency });
+    const value = normalizeSystemSettings(record || {});
+    this.settingsCache = { value, expiresAt: now + 5000 };
+    return clone(value);
+  }
+
+  async updateSystemSettings(patch) {
+    const outcome = await this.mutateJsonRecord(SETTINGS_KEY, normalizeSystemSettings(), (draft) => {
+      const next = normalizeSystemSettings({ ...draft, ...patch });
+      Object.assign(draft, next, { updatedAt: new Date().toISOString() });
+      return { settings: next };
+    }, { metadata: { type: 'system-settings', updatedAt: new Date().toISOString() } });
+    this.settingsCache = null;
+    return outcome.result.settings;
+  }
+
+  async appendAudit(entry) {
+    const now = new Date().toISOString();
+    const key = `${AUDIT_PREFIX}${now.replace(/[:.]/g, '-')}-${token(6)}`;
+    const record = {
+      id: key.slice(AUDIT_PREFIX.length),
+      createdAt: now,
+      action: cleanText(entry?.action, 80),
+      eventId: cleanText(entry?.eventId, 120),
+      eventName: cleanText(entry?.eventName, 120),
+      actor: cleanText(entry?.actor, 80) || 'super-admin',
+      detail: cleanText(entry?.detail, 300),
+      outcome: cleanText(entry?.outcome, 30) || 'success',
+    };
+    await this.dataStore.setJSON(key, record, {
+      onlyIfNew: true,
+      metadata: { type: 'audit', action: record.action, createdAt: now },
+    });
+    return record;
+  }
+
+  async listAudit({ limit = 80 } = {}) {
+    if (typeof this.dataStore.list !== 'function') return [];
+    const result = await this.dataStore.list({ prefix: AUDIT_PREFIX });
+    const keys = (result?.blobs || [])
+      .map((blob) => blob.key)
+      .filter((key) => key.startsWith(AUDIT_PREFIX))
+      .sort((left, right) => right.localeCompare(left))
+      .slice(0, Math.max(1, Math.min(200, Number(limit) || 80)));
+    return (await inChunks(keys, 20, (key) => this.dataStore.get(key, {
+      type: 'json',
+      consistency: 'eventual',
+    }))).filter(Boolean);
+  }
+
+  async getLoginThrottle(identifier) {
+    const key = `${LOGIN_PREFIX}${identifier}`;
+    const record = await this.dataStore.get(key, { type: 'json', consistency: 'strong' });
+    if (!record) return { attempts: 0, windowStartedAt: null, lockedUntil: null };
+    const now = Date.now();
+    if (record.lockedUntil && new Date(record.lockedUntil).getTime() > now) return record;
+    if (!record.windowStartedAt || now - new Date(record.windowStartedAt).getTime() > 15 * 60 * 1000) {
+      return { attempts: 0, windowStartedAt: null, lockedUntil: null };
+    }
+    return record;
+  }
+
+  async recordLoginFailure(identifier) {
+    const key = `${LOGIN_PREFIX}${identifier}`;
+    const now = new Date();
+    const outcome = await this.mutateJsonRecord(key, {
+      attempts: 0,
+      windowStartedAt: now.toISOString(),
+      lockedUntil: null,
+    }, (draft) => {
+      const windowStart = draft.windowStartedAt ? new Date(draft.windowStartedAt).getTime() : 0;
+      if (!windowStart || now.getTime() - windowStart > 15 * 60 * 1000) {
+        draft.attempts = 0;
+        draft.windowStartedAt = now.toISOString();
+        draft.lockedUntil = null;
+      }
+      draft.attempts = Math.max(0, Number(draft.attempts) || 0) + 1;
+      if (draft.attempts >= 8) draft.lockedUntil = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+      draft.updatedAt = now.toISOString();
+      return { ...draft };
+    }, { metadata: { type: 'login-throttle', updatedAt: now.toISOString() } });
+    return outcome.record;
+  }
+
+  async clearLoginThrottle(identifier) {
+    await this.dataStore.delete(`${LOGIN_PREFIX}${identifier}`);
+  }
+
+  async setEventStatus(eventId, status, reason = '') {
+    const allowed = new Set(['active', 'blocked', 'completed', 'archived', 'trashed']);
+    if (!allowed.has(status)) throw new HttpError(400, 'Stato della stanza non valido.');
+    return this.mutateEvent(eventId, (event) => {
+      const previous = eventStatus(event);
+      if (status === 'trashed') {
+        event.previousStatus = previous === 'trashed' ? event.previousStatus || 'active' : previous;
+        event.trashedAt = event.trashedAt || new Date().toISOString();
+        event.purgeAfter = new Date(Date.now() + 30 * 86400000).toISOString();
+      } else {
+        if (previous === 'trashed') {
+          event.trashedAt = null;
+          event.purgeAfter = null;
+          event.previousStatus = '';
+        }
+      }
+      event.status = status;
+      event.statusReason = cleanText(reason, 180);
+      event.statusUpdatedAt = new Date().toISOString();
+      return { previous, status };
+    }, { syncRecovery: true });
+  }
+
+  async restoreEvent(eventId) {
+    const event = await this.getEventById(eventId, { consistency: 'strong' });
+    if (!event) return null;
+    const status = event.status === 'trashed' && ['active', 'blocked', 'completed', 'archived'].includes(event.previousStatus)
+      ? event.previousStatus
+      : 'active';
+    return this.setEventStatus(eventId, status, '');
+  }
+
+  async regenerateRecoveryCode(eventId, participantId) {
+    return this.mutateEvent(eventId, (event) => {
+      const participant = event.participants.find((item) => item.id === participantId);
+      if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+      participant.recoveryCode = recoveryCode();
+      return { recoveryCode: participant.recoveryCode, participantName: participant.name };
+    });
+  }
+
+  async regenerateParticipantToken(eventId, participantId) {
+    const event = await this.getEventById(eventId, { consistency: 'strong' });
+    if (!event) return null;
+    const participant = event.participants.find((item) => item.id === participantId);
+    if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+    const oldToken = participant.token;
+    let newToken = '';
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      newToken = token(24);
+      const write = await this.dataStore.setJSON(indexKey('participant', newToken), {
+        eventId,
+        participantId,
+      }, { onlyIfNew: true, metadata: { type: 'index' } });
+      if (write.modified) break;
+      newToken = '';
+    }
+    if (!newToken) throw new HttpError(500, 'Impossibile generare un nuovo link. Riprova.');
+    try {
+      const outcome = await this.mutateEvent(eventId, (draft) => {
+        const target = draft.participants.find((item) => item.id === participantId);
+        if (!target) throw new HttpError(404, 'Partecipante non trovato.');
+        target.token = newToken;
+        return { token: newToken, participantName: target.name };
+      });
+      await this.dataStore.delete(indexKey('participant', oldToken));
+      return outcome;
+    } catch (error) {
+      await this.dataStore.delete(indexKey('participant', newToken));
+      throw error;
+    }
+  }
+
+  async removeParticipantPhoto(eventId, participantId) {
+    let oldToken = '';
+    const outcome = await this.mutateEvent(eventId, (event) => {
+      const participant = event.participants.find((item) => item.id === participantId);
+      if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+      oldToken = participant.photoToken || '';
+      participant.photoToken = '';
+      participant.photoUrl = '';
+      return { participantName: participant.name };
+    }, { syncRecovery: true });
+    if (oldToken) await this.deletePhoto(oldToken).catch(() => {});
+    return outcome;
+  }
+
+  async updateParticipant(eventId, participantId, patch) {
+    const before = await this.getEventById(eventId, { consistency: 'strong' });
+    if (!before) return null;
+    const previous = before.participants.find((item) => item.id === participantId);
+    if (!previous) throw new HttpError(404, 'Partecipante non trovato.');
+    const oldPhone = normalizeE164(previous.phone);
+    const outcome = await this.mutateEvent(eventId, (event) => {
+      const participant = event.participants.find((item) => item.id === participantId);
+      if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+      if (Object.hasOwn(patch, 'name')) {
+        const name = cleanText(patch.name, 60);
+        if (name.length < 2) throw new HttpError(400, 'Inserisci un nome valido.');
+        const duplicate = event.participants.some((item) => (
+          item.id !== participantId && item.name.toLocaleLowerCase('it-IT') === name.toLocaleLowerCase('it-IT')
+        ));
+        if (duplicate) throw new HttpError(400, `Il nome “${name}” è già presente.`);
+        participant.name = name;
+        if (participant.isOrganizer) event.organizer = name;
+      }
+      if (Object.hasOwn(patch, 'phone')) {
+        const phone = normalizeE164(patch.phone);
+        if (!phone) throw new HttpError(400, 'Inserisci un numero valido con prefisso internazionale.');
+        participant.phone = phone;
+      }
+      return {
+        participantName: participant.name,
+        phone: participant.phone,
+      };
+    }, { syncRecovery: true });
+    const updated = outcome?.event.participants.find((item) => item.id === participantId);
+    const newPhone = normalizeE164(updated?.phone);
+    if (oldPhone && oldPhone !== newPhone) await this.removePhoneIndexEntry(oldPhone, eventId, participantId).catch(() => {});
+    return outcome;
+  }
+
+  async deleteParticipant(eventId, participantId) {
+    const before = await this.getEventById(eventId, { consistency: 'strong' });
+    if (!before) return null;
+    const participant = before.participants.find((item) => item.id === participantId);
+    if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+    if (participant.isOrganizer) throw new HttpError(409, 'Il partecipante admin non può essere eliminato: modifica prima l’organizzazione della stanza.');
+    if (before.participants.some((item) => item.revealedAt)) {
+      throw new HttpError(409, 'Non puoi eliminare partecipanti dopo una rivelazione.');
+    }
+    if (before.participants.length <= 3) throw new HttpError(409, 'Servono almeno 3 partecipanti.');
+    const outcome = await this.mutateEvent(eventId, (event) => {
+      event.participants = event.participants.filter((item) => item.id !== participantId);
+      assignSingleCycle(event.participants);
+      return { participantName: participant.name };
+    }, { syncRecovery: true });
+    await Promise.allSettled([
+      this.dataStore.delete(indexKey('participant', participant.token)),
+      this.removePhoneIndexEntry(participant.phone, eventId, participantId),
+      participant.photoToken ? this.deletePhoto(participant.photoToken) : Promise.resolve(),
+    ]);
+    return outcome;
+  }
+
+  async duplicateEvent(eventId) {
+    const source = await this.ensureEventReady(eventId);
+    if (!source) return null;
+    const organizerParticipant = source.participants.find((participant) => participant.isOrganizer);
+    const duplicate = buildEvent({
+      name: `${source.name} (copia)`.slice(0, 80),
+      organizerParticipates: Boolean(source.organizerParticipates),
+      organizerName: source.organizer,
+      organizerPhone: organizerParticipant?.phone || '',
+      date: source.date,
+      location: source.location,
+      budget: Number.isInteger(source.budgetCents) ? String(source.budgetCents / 100) : '',
+      requirePhones: false,
+      participants: source.participants
+        .filter((participant) => !participant.isOrganizer)
+        .map((participant) => ({ name: participant.name, phone: participant.phone })),
+    });
+    await this.createEvent(duplicate);
+    return duplicate;
+  }
+
+  async repairEvent(eventId) {
+    const event = await this.ensureEventReady(eventId);
+    if (!event) return null;
+    const validation = validateAssignments(event);
+    let repairedAssignments = false;
+    let current = event;
+    if (!validation.valid && !event.participants.some((participant) => participant.revealedAt)) {
+      const outcome = await this.mutateEvent(eventId, (draft) => {
+        assignSingleCycle(draft.participants);
+        return { repairedAssignments: true };
+      });
+      current = outcome.event;
+      repairedAssignments = true;
+    }
+    await Promise.allSettled([
+      this.syncPhoneIndexesForEvent(current),
+      this.upsertCatalogSummary(current),
+    ]);
+    return {
+      event: clone(current),
+      validation: validateAssignments(current),
+      repairedAssignments,
+    };
+  }
+
+  async purgeEvent(eventId) {
+    const event = await this.getEventById(eventId, { consistency: 'strong' });
+    if (!event) return null;
+    await Promise.allSettled(event.participants.map((participant) => (
+      this.removePhoneIndexEntry(participant.phone, event.id, participant.id)
+    )));
+    await Promise.allSettled(event.participants.map((participant) => (
+      participant.photoToken ? this.deletePhoto(participant.photoToken) : Promise.resolve()
+    )));
+    const keys = [
+      indexKey('admin', event.adminToken),
+      indexKey('public', event.publicToken),
+      ...event.participants.map((participant) => indexKey('participant', participant.token)),
+      eventKey(event.id),
+    ];
+    await Promise.allSettled(keys.map((key) => this.dataStore.delete(key)));
+    await this.removeCatalogEntry(event.id).catch(() => {});
+    return clone(event);
   }
 
   async savePhoto({ bytes, mime, extension, participantId, eventId }) {
@@ -309,10 +893,10 @@ export class SecretSantaRepository {
     throw new HttpError(500, 'Non è stato possibile salvare la foto. Riprova.');
   }
 
-  async getPhoto(photoToken) {
+  async getPhoto(photoToken, { consistency = 'eventual' } = {}) {
     return this.mediaStore.getWithMetadata(photoToken, {
       type: 'arrayBuffer',
-      consistency: 'strong',
+      consistency,
     });
   }
 

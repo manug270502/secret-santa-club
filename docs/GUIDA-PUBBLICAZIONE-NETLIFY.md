@@ -1,21 +1,21 @@
-# Aggiornare Secret Santa Club v5 su Netlify
+# Aggiornare Secret Santa Club v6 su Netlify
 
-Questa versione conserva Netlify Functions, Netlify Blobs e inviti WhatsApp gratuiti, aggiungendo budget, recupero protetto e profili regalo.
+La versione 6 conserva gli stessi Netlify Blobs e aggiunge Control Center, moderazione globale e ottimizzazioni.
 
 ## 1. Crea un punto di ripristino
 
-Prima di sostituire i file puoi creare un branch locale:
+Puoi creare un branch prima di copiare i file:
 
-```bash
-git checkout -b backup-prima-v5
-git checkout main
+```powershell
+git switch -c backup-prima-v6
+git switch main
 ```
 
-Oppure conserva una copia della cartella del progetto.
+In alternativa conserva una copia della cartella del progetto.
 
 ## 2. Copia la nuova versione
 
-Estrai lo ZIP e copia il contenuto della cartella `secret-santa-club-netlify` nel repository locale gia collegato a GitHub.
+Estrai il pacchetto e copia il contenuto della cartella `secret-santa-club-netlify` nel repository locale già collegato a GitHub.
 
 Non eliminare:
 
@@ -25,55 +25,112 @@ Non eliminare:
 
 ## 3. Verifica in locale
 
-```bash
-npm start
-```
-
-Apri `http://localhost:3000` e controlla:
-
-- campo data e budget nella creazione;
-- flag **Parteciperai anche tu?**;
-- pagina **Ho perso il mio link**;
-- profilo regalo nella pagina partecipante;
-- card scorrevoli nella dashboard;
-- messaggio WhatsApp con codice elfo.
-
-Esegui poi:
-
-```bash
+```powershell
 npm run check
 ```
 
-Il risultato atteso e `13` test superati.
+Il risultato atteso è:
 
-## 4. Pubblica
+```text
+18 test
+18 pass
+0 fail
+```
 
-```bash
+Per provare il sito ordinario:
+
+```powershell
+npm start
+```
+
+Apri `http://localhost:3000`.
+
+## 4. Pubblica il codice
+
+```powershell
 git status
 git add -A
-git commit -m "Budget, recupero inviti e profili regalo"
+git commit -m "Control Center super admin e ottimizzazioni v6"
 git push
 ```
 
-Netlify rileva il push e avvia automaticamente il deploy.
+Netlify avvia automaticamente il deploy.
 
-## 5. Controlla il deploy
+## 5. Configura il super-admin
 
-Dalla pagina **Deploys** di Netlify attendi lo stato `Published`, poi apri:
+Genera l'hash della password:
+
+```powershell
+npm run superadmin:hash -- 'Una password lunga e unica'
+```
+
+Genera il segreto:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+```
+
+In Netlify apri:
+
+```text
+Project configuration → Environment variables
+```
+
+Aggiungi:
+
+```text
+SUPERADMIN_USERNAME=il-tuo-username
+SUPERADMIN_PASSWORD_HASH=scrypt$v1$...
+SUPERADMIN_SESSION_SECRET=...
+SUPERADMIN_SESSION_HOURS=8
+```
+
+Non usare `SUPERADMIN_PASSWORD`: la password in chiaro non serve e non deve essere salvata.
+
+Dopo il salvataggio esegui:
+
+```text
+Deploys → Trigger deploy → Deploy site
+```
+
+## 6. Controlla il deploy
+
+Apri:
 
 ```text
 https://TUO-SITO.netlify.app/api/health
 ```
 
-La risposta deve indicare il servizio v5 e `netlify-blobs`.
+Risposta attesa:
 
-Controlla anche:
-
-```text
-https://TUO-SITO.netlify.app/my-events
+```json
+{
+  "ok": true,
+  "service": "secret-santa-club-netlify-v6",
+  "storage": "netlify-blobs",
+  "superAdminConfigured": true
+}
 ```
 
-## 6. Migra gli eventi gia esistenti
+Poi apri:
+
+```text
+https://TUO-SITO.netlify.app/super-admin
+```
+
+## 7. Carica le stanze esistenti
+
+Alla prima apertura il Control Center ricostruisce il catalogo se non è completo. Le stanze già presenti vengono individuate tramite il prefisso `event/` nei Blobs.
+
+Se manca qualcosa, premi:
+
+```text
+Ricostruisci indice
+```
+
+L'operazione non cambia sorteggi, foto o partecipanti.
+
+## 8. Dati conservati
 
 Gli store restano:
 
@@ -82,76 +139,62 @@ secret-santa-data-v2
 secret-santa-media-v2
 ```
 
-Non vengono cancellati eventi, fotografie, messaggi o abbinamenti.
+Non vengono cancellati:
 
-Per ogni vecchia festa che vuoi rendere recuperabile:
+- eventi;
+- partecipanti;
+- abbinamenti;
+- token;
+- fotografie;
+- messaggi;
+- rivelazioni;
+- codici elfo.
 
-1. apri una volta il relativo link admin dopo il deploy;
-2. attendi che la lista partecipanti venga caricata;
-3. verifica che accanto a ciascuno compaia un codice elfo;
-4. reinvia l'invito WhatsApp oppure comunica il codice manualmente.
+La prima apertura di un evento con schema precedente applica soltanto i campi mancanti in modo compatibile.
 
-La prima apertura aggiorna lo schema e crea l'indice telefonico. Gli inviti inviati prima della v5 non contenevano il codice, quindi non possono recuperarlo dal vecchio messaggio.
+## 9. Prova consigliata
 
-## 7. Flusso di recupero
+Prima di usare il pannello sulle feste reali:
 
-1. Il partecipante apre **Trova invito** dalla homepage.
-2. Inserisce il numero usato dall'admin.
-3. Vede le feste associate a quel numero.
-4. Inserisce il codice elfo personale.
-5. Ottiene il pulsante per il proprio invito e quello per la stanza comune.
-6. Se aveva gia rivelato il nome, lo vede inizialmente coperto e puo mostrarlo con l'occhio.
+1. crea una stanza di prova con almeno tre persone;
+2. apri il Control Center;
+3. blocca e sblocca la stanza;
+4. concludila e verifica la modalità sola lettura;
+5. esporta CSV e JSON;
+6. spostala nel cestino e ripristinala;
+7. elimina definitivamente soltanto la stanza di prova.
 
-Il numero da solo non restituisce token personali o abbinamenti.
+## 10. Cache e velocità
 
-## 8. Profili regalo
-
-Ogni partecipante puo indicare:
-
-- colore preferito;
-- fino a cinque passioni;
-- stile del regalo;
-- cose da evitare;
-- indizio libero gia presente nelle versioni precedenti.
-
-Le informazioni sono mostrate nella stanza comune e anche alla persona che deve fare il regalo. Non inserire dati sensibili nelle preferenze.
-
-## 9. Variabili ambiente
-
-Non servono nuove variabili e non servono credenziali WhatsApp.
-
-Restano facoltative:
-
-```text
-PUBLIC_BASE_URL=
-ENABLE_DEMO=false
-BLOBS_REGION=eu-central-1
-```
-
-Puoi eliminare eventuali variabili obsolete con prefisso `TWILIO_`.
+Dopo il deploy esegui un refresh completo del browser. Gli asset v6 hanno URL versionati e cache lunga; le API private rimangono `no-store`. La dashboard pubblica può mostrare un aggiornamento con qualche secondo di ritardo per ridurre le letture Blob e migliorare la velocità.
 
 ## Problemi comuni
 
-### Git dice `nothing to commit`
+### `/api/health` mostra `superAdminConfigured: false`
 
-Verifica di avere copiato i file dentro la cartella che contiene `.git`:
+Manca una variabile, il segreto è più corto di 32 caratteri oppure il deploy non è stato rifatto dopo il salvataggio.
 
-```bash
+### Login non riuscito dopo aver cambiato password
+
+Genera un nuovo hash, sostituisci `SUPERADMIN_PASSWORD_HASH`, salva e avvia un nuovo deploy. Non inserire la password in chiaro al posto dell'hash.
+
+### Sessione scaduta
+
+Accedi nuovamente. La durata predefinita è 8 ore e può essere cambiata con `SUPERADMIN_SESSION_HOURS` tra 1 e 24.
+
+### `nothing to commit`
+
+I file non sono stati copiati nella cartella che contiene `.git`, oppure erano già presenti. Controlla:
+
+```powershell
 git status
+git remote -v
 ```
 
-### Una vecchia festa non appare nella ricerca
+### Una stanza non appare
 
-Apri una volta la sua cabina admin dopo il deploy. La migrazione crea l'indice per i numeri gia salvati.
+Premi **Ricostruisci indice**. Se ancora manca, verifica nei log Functions che il relativo Blob `event/...` sia leggibile.
 
-### Il partecipante ha perso anche il codice
+### Il sito sembra ancora vecchio
 
-L'admin puo leggerlo nella cabina di regia e reinviare l'invito. Senza codice il sito non espone il link personale, per evitare accessi basati sul solo numero.
-
-### Il campo data resta largo su iPhone
-
-Esegui un refresh completo dopo il deploy. I CSS hanno cache di un'ora; in Safari puoi chiudere e riaprire la scheda o cancellare i dati del sito.
-
-### WhatsApp apre una chat sbagliata
-
-Modifica il numero dalla matita nella cabina admin e usa il formato internazionale, per esempio `+39 333 123 4567`.
+Attendi il deploy `Published`, poi ricarica forzatamente la pagina. Controlla che gli HTML referenzino `styles.css?v=6.0.0`.

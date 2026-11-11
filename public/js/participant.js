@@ -22,6 +22,52 @@ document.addEventListener('DOMContentLoaded', async () => {
   let selectedMood = '🎄';
   let previewObjectUrl = '';
 
+  const canEditProfile = () => Boolean(state && !state.event.readOnly && state.event.policies?.allowParticipantEdits !== false);
+  const canUploadPhoto = () => Boolean(canEditProfile() && state.event.policies?.allowPhotoUploads !== false);
+  const canRevealGift = () => Boolean(state && !state.event.readOnly && state.event.policies?.allowReveal !== false);
+
+  function renderPermissions() {
+    const banner = UI.qs('#participantRoomStatus');
+    const status = state.event.status || 'active';
+    const editable = canEditProfile();
+    const revealAllowed = canRevealGift();
+    const uploadAllowed = canUploadPhoto();
+    const shouldShow = state.event.readOnly || !editable || !revealAllowed || !uploadAllowed;
+    banner.hidden = !shouldShow;
+    banner.className = `admin-room-status-banner participant-status-banner ${status}`;
+
+    let title = 'Alcune funzioni sono in pausa';
+    let text = 'Puoi consultare il tuo invito, ma alcune modifiche sono state disattivate dall’organizzatore.';
+    if (status === 'completed') {
+      title = 'Questa festa è conclusa';
+      text = 'Il profilo e l’abbinamento già rivelato restano consultabili in sola lettura.';
+    } else if (!editable) {
+      title = 'Profilo in sola lettura';
+      text = 'Le modifiche al profilo sono temporaneamente disattivate per questa stanza.';
+    } else if (!revealAllowed) {
+      title = 'Rivelazione in pausa';
+      text = 'Puoi salvare foto e preferenze, ma il pacchetto non può essere aperto in questo momento.';
+    } else if (!uploadAllowed) {
+      title = 'Nuove foto in pausa';
+      text = 'Puoi aggiornare le preferenze; il caricamento e la sostituzione della foto sono disattivati.';
+    }
+    UI.qs('#participantRoomStatusTitle').textContent = title;
+    UI.qs('#participantRoomStatusText').textContent = text;
+
+    form.querySelectorAll('input, select, textarea, button').forEach((control) => {
+      control.disabled = !editable;
+    });
+    photoInput.disabled = !uploadAllowed;
+    UI.qs('#cameraButton').disabled = !uploadAllowed;
+    UI.qs('#captureButton').disabled = !uploadAllowed;
+    const revealButton = UI.qs('#revealButton');
+    revealButton.disabled = !editable;
+    revealButton.querySelector('span').textContent = !editable
+      ? 'Profilo in sola lettura'
+      : (state.participant.revealed ? 'Salva aggiornamenti' : (revealAllowed ? 'Salva e apri il pacchetto' : 'Salva preferenze'));
+    UI.qs('#editProfileButton').disabled = !editable;
+  }
+
   function setPreview(source, objectUrl = false) {
     if (!source) return;
     if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
@@ -132,6 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const participant = state.participant;
     UI.qs('#joinEventLabel').textContent = state.event.name.toUpperCase();
     renderEventMeta();
+    renderPermissions();
     UI.qs('#participantName').textContent = participant.name;
     photoInitial.textContent = UI.initials(participant.name);
     wishInput.value = participant.wish || '';
@@ -242,7 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   UI.qsa('.mood-button').forEach((button) => {
-    button.addEventListener('click', () => syncMood(button.dataset.mood));
+    button.addEventListener('click', () => { if (canEditProfile()) syncMood(button.dataset.mood); });
   });
 
   wishInput.addEventListener('input', () => {
@@ -267,6 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   photoInput.addEventListener('change', async () => {
+    if (!canUploadPhoto()) return;
     const file = photoInput.files?.[0];
     if (!file) return;
     selectedPhoto = null;
@@ -281,11 +329,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       photoInput.value = '';
       UI.toast(error.message, 'error');
     } finally {
-      photoInput.disabled = false;
+      photoInput.disabled = !canUploadPhoto();
     }
   });
 
   UI.qs('#cameraButton').addEventListener('click', async () => {
+    if (!canUploadPhoto()) { UI.toast('Il caricamento delle foto è in pausa.', 'error'); return; }
     if (!navigator.mediaDevices?.getUserMedia) {
       UI.toast('La fotocamera diretta non è disponibile qui. Usa “Carica foto” per aprire la fotocamera del telefono.', 'error');
       return;
@@ -303,6 +352,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   UI.qs('#closeCamera').addEventListener('click', stopCamera);
 
   UI.qs('#captureButton').addEventListener('click', () => {
+    if (!canUploadPhoto()) return;
     const width = cameraVideo.videoWidth || 720;
     const height = cameraVideo.videoHeight || 720;
     const size = Math.min(width, height);
@@ -335,7 +385,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!selectedPhoto && !state.participant.photoUrl) {
+    if (!canEditProfile()) {
+      UI.toast('Il profilo è in sola lettura.', 'error');
+      return;
+    }
+    if (!state.participant.revealed && canRevealGift() && !selectedPhoto && !state.participant.photoUrl) {
       UI.toast('Aggiungi una foto prima di aprire il pacchetto.', 'error');
       return;
     }
@@ -357,20 +411,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.participant.mood = selectedMood;
       state.participant.giftProfile = profile.giftProfile;
       selectedPhoto = null;
-      const reveal = await UI.api(`/api/participant/${participantToken}/reveal`, { method: 'POST' });
-      state.participant.revealed = true;
-      state.participant.targetName = reveal.targetName;
-      state.participant.targetProfile = reveal.targetProfile;
-      showResult(reveal.targetName, reveal.targetProfile, true);
+      if (state.participant.revealed) {
+        UI.toast('Preferenze aggiornate.');
+        showResult(state.participant.targetName, state.participant.targetProfile, false);
+      } else if (canRevealGift()) {
+        const reveal = await UI.api(`/api/participant/${participantToken}/reveal`, { method: 'POST' });
+        state.participant.revealed = true;
+        state.participant.targetName = reveal.targetName;
+        state.participant.targetProfile = reveal.targetProfile;
+        showResult(reveal.targetName, reveal.targetProfile, true);
+      } else {
+        UI.toast('Preferenze salvate. Il pacchetto potrà essere aperto quando la rivelazione sarà riattivata.');
+        renderPermissions();
+      }
     } catch (error) {
       UI.toast(error.message, 'error');
     } finally {
-      button.disabled = false;
-      button.querySelector('span').textContent = state?.participant?.revealed ? 'Salva aggiornamenti' : 'Salva e apri il pacchetto';
+      renderPermissions();
     }
   });
 
   UI.qs('#editProfileButton').addEventListener('click', () => {
+    if (!canEditProfile()) { UI.toast('Il profilo è in sola lettura.', 'error'); return; }
     UI.qs('#revealButton').querySelector('span').textContent = 'Salva aggiornamenti';
     showProfile();
     window.scrollTo({ top: 0, behavior: 'smooth' });

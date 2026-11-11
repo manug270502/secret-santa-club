@@ -1,0 +1,24 @@
+SECRET SANTA CLUB NETLIFY - INIZIA DA QUI
+
+AVVIO LOCALE
+1. Installa Node.js 22.13 o superiore: https://nodejs.org
+2. Apri questa cartella in Visual Studio Code.
+3. Apri il terminale integrato.
+4. Esegui: npm start
+5. Apri: http://localhost:3000
+
+Facoltativo, per emulare Netlify: npm install e poi npm run netlify:dev
+
+PUBBLICAZIONE HTTPS GRATUITA
+1. Carica questa cartella in un repository GitHub.
+2. Entra su https://app.netlify.com
+3. Add new project > Import an existing project > GitHub.
+4. Seleziona il repository e premi Deploy.
+5. Non devi impostare un database o chiavi API.
+
+WHATSAPP
+Nell'area admin premi "Apri WhatsApp" accanto a ogni nome.
+Chat, testo e link personale sono già compilati: dentro WhatsApp conferma soltanto "Invia".
+
+GUIDA COMPLETA
+Apri docs/GUIDA-PUBBLICAZIONE-NETLIFY.md oppure README.md.

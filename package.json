@@ -1,0 +1,22 @@
+{
+  "name": "secret-santa-club-netlify",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secret Santa natalizio con Netlify Functions, Netlify Blobs e inviti WhatsApp precompilati.",
+  "scripts": {
+    "dev": "node server-local.mjs",
+    "start": "node server-local.mjs",
+    "netlify:dev": "npx --yes netlify-cli@27.17.0 dev",
+    "reset:local": "node scripts/reset-local.mjs",
+    "build": "node scripts/build-check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@netlify/blobs": "11.1.9"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

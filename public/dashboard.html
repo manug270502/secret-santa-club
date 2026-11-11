@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12382d">
+  <meta name="robots" content="noindex,nofollow">
+  <title>La sala comune — Secret Santa Club</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script src="/js/common.js" defer></script>
+  <script src="/js/dashboard.js" defer></script>
+</head>
+<body class="page-dashboard">
+  <div class="snow-layer snow-subtle" data-snow aria-hidden="true"></div>
+  <header class="site-header dashboard-header">
+    <a class="brand" href="/"><img src="/assets/logo-mark.svg" alt="" width="42" height="42"><span><strong>Secret Santa</strong><small>Club</small></span></a>
+    <div class="header-actions">
+      <button class="icon-button" id="soundButton" type="button" title="Suona le campanelle">🔔</button>
+      <button class="button button-small button-cream" id="lightsButton" type="button">✨ Più magia</button>
+    </div>
+  </header>
+
+  <main id="dashboardApp" hidden>
+    <section class="party-hero">
+      <div class="party-hero-copy">
+        <div class="eyebrow light">La sala comune degli elfi</div>
+        <h1 id="partyTitle">Il nostro Secret Santa</h1>
+        <p id="partyMeta"></p>
+        <div class="party-countdown" id="countdown">
+          <div><strong id="countDays">—</strong><small>giorni</small></div><span>:</span>
+          <div><strong id="countHours">—</strong><small>ore</small></div><span>:</span>
+          <div><strong id="countMinutes">—</strong><small>minuti</small></div>
+        </div>
+      </div>
+      <div class="party-progress-card">
+        <div class="progress-ring" id="progressRing"><div><strong id="progressPercent">0%</strong><small>pacchetti<br>aperti</small></div></div>
+        <p><b id="progressText">0 di 0</b> partecipanti hanno scoperto il proprio abbinamento.</p>
+        <span class="privacy-ribbon">🔒 Nessuno vede gli abbinamenti</span>
+      </div>
+    </section>
+
+    <section class="party-content">
+      <section class="section party-section participant-section">
+        <div class="section-heading split-heading">
+          <div><span class="eyebrow">La squadra di Natale</span><h2>Chi c’è sotto l’albero</h2></div>
+          <span class="soft-badge" id="readyBadge">0 pronti</span>
+        </div>
+        <div class="people-grid" id="peopleGrid"></div>
+      </section>
+
+      <section class="section party-section games-section">
+        <div class="section-heading centered narrow-heading"><span class="eyebrow">Pausa produttività</span><h2>Il villaggio dei perditempo</h2><p>Tre modi scientificamente non dimostrati per far arrivare prima Natale.</p></div>
+        <div class="games-grid">
+          <article class="game-card prompt-game">
+            <div class="game-top"><span class="game-icon">🎯</span><span class="game-tag">GIOCO DI GRUPPO</span></div>
+            <h3>Chi è l’elfo?</h3>
+            <p id="gamePrompt">Chi comprerebbe il regalo all’ultimo secondo?</p>
+            <div class="picked-person" id="pickedPerson"><span>?</span><b>Tocca “Pesca”</b></div>
+            <button class="button button-primary button-full" id="pickPersonButton" type="button">Pesca un nome</button>
+            <button class="text-button" id="newPromptButton" type="button">Cambia domanda ↻</button>
+          </article>
+
+          <article class="game-card bingo-game">
+            <div class="game-top"><span class="game-icon">☃️</span><span class="game-tag">SOLO PER TE</span></div>
+            <h3>Bingo dell’attesa</h3>
+            <p>Spunta le caselle mentre ti prepari allo scambio.</p>
+            <div class="bingo-grid" id="bingoGrid"></div>
+            <div class="bingo-footer"><span id="bingoScore">0/9 completate</span><button class="text-button" id="resetBingo" type="button">Azzera</button></div>
+          </article>
+
+          <article class="game-card mission-game">
+            <div class="game-top"><span class="game-icon">🛷</span><span class="game-tag">MISSIONE LAMPO</span></div>
+            <h3>La slitta decide</h3>
+            <div class="mission-ticket"><span>MISSIONE DEL MOMENTO</span><strong id="missionText">Invia nel gruppo una foto del peggior addobbo che trovi.</strong></div>
+            <button class="button button-secondary button-full" id="missionButton" type="button">Nuova missione ✦</button>
+            <small class="mission-note">Nessun punteggio. Solo gloria eterna.</small>
+          </article>
+        </div>
+      </section>
+
+      <section class="section party-section wall-section">
+        <div class="wall-layout">
+          <div class="wall-intro">
+            <span class="eyebrow light">Bacheca pubblica</span>
+            <h2>Il muro degli auguri</h2>
+            <p>Lascia un pensiero, una battuta o un indizio criptico. Niente spoiler, gli elfi moderatori stanno guardando.</p>
+            <form class="wall-form" id="wallForm">
+              <div class="form-grid wall-form-grid">
+                <label class="field dark-field"><span>Firma</span><input name="author" maxlength="40" placeholder="Elfo anonimo"></label>
+                <label class="field dark-field"><span>Reazione</span><select name="emoji"><option>✨</option><option>🎄</option><option>🎁</option><option>❤️</option><option>😂</option><option>☃️</option></select></label>
+              </div>
+              <label class="field dark-field"><span>Messaggio</span><textarea name="message" maxlength="180" rows="3" placeholder="Che la stagione dei regali improbabili abbia inizio…" required></textarea></label>
+              <button class="button button-gold" type="submit">Appendi al muro <span>→</span></button>
+            </form>
+          </div>
+          <div class="message-wall" id="messageWall"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <main class="center-state" id="dashboardLoading"><div class="gift-loader">🎄</div><h1>Apriamo la sala comune…</h1><p>Stiamo accendendo le luci e contando gli elfi.</p></main>
+
+  <footer class="site-footer dashboard-footer"><div class="brand footer-brand"><img src="/assets/logo-mark.svg" alt="" width="38" height="38"><span><strong>Secret Santa</strong><small>Club</small></span></div><p>Gli abbinamenti restano segreti. Le figuracce, invece, sono pubbliche.</p><button class="text-button light-text" id="sharePartyButton" type="button">Condividi la sala ↗</button></footer>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+</body>
+</html>

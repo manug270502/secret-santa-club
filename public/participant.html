@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#12382d">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Il tuo pacchetto segreto — Secret Santa Club</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script src="/js/common.js" defer></script>
+  <script src="/js/participant.js" defer></script>
+</head>
+<body class="page-participant">
+  <div class="snow-layer" data-snow aria-hidden="true"></div>
+  <header class="join-header">
+    <a class="brand brand-light" href="/"><img src="/assets/logo-mark.svg" alt="" width="42" height="42"><span><strong>Secret Santa</strong><small>Club</small></span></a>
+    <span class="secret-chip">🔒 Link personale</span>
+  </header>
+
+  <main class="join-shell">
+    <section class="join-card" id="joinLoading">
+      <div class="gift-loader large">🎁</div><h1>Il tuo pacchetto sta arrivando…</h1><p>Controlliamo il fiocco e teniamo lontani gli spoiler.</p>
+    </section>
+
+    <section class="join-card profile-card" id="profileView" hidden>
+      <div class="join-event-label" id="joinEventLabel">SECRET SANTA</div>
+      <h1>Ciao <span id="participantName">Elfo</span>! <span aria-hidden="true">👋</span></h1>
+      <p class="join-intro">Prima di scoprire chi hai pescato, fatti riconoscere nella sala comune.</p>
+
+      <form id="profileForm">
+        <div class="photo-stage">
+          <div class="photo-ring">
+            <div class="photo-preview" id="photoPreview"><span id="photoInitial">E</span><img id="photoImage" alt="Anteprima della tua foto" hidden></div>
+            <span class="camera-badge">📸</span>
+          </div>
+          <div class="photo-copy"><strong>La tua foto natalizia</strong><small>Selfie, foto buffa o il tuo miglior maglione. Ottimizzata automaticamente, max 4 MB.</small></div>
+          <div class="photo-actions">
+            <label class="button button-secondary button-small file-button">Carica foto<input id="photoInput" type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="user"></label>
+            <button class="button button-ghost button-small" id="cameraButton" type="button">Scatta ora</button>
+          </div>
+        </div>
+
+        <div class="camera-panel" id="cameraPanel" hidden>
+          <video id="cameraVideo" playsinline autoplay muted></video>
+          <div class="camera-controls"><button class="shutter-button" id="captureButton" type="button" aria-label="Scatta foto"></button><button class="button button-cream button-small" id="closeCamera" type="button">Chiudi</button></div>
+          <canvas id="cameraCanvas" hidden></canvas>
+        </div>
+
+        <fieldset class="mood-fieldset">
+          <legend>Qual è la tua energia natalizia?</legend>
+          <div class="mood-options" id="moodOptions">
+            <button class="mood-button active" type="button" data-mood="🎄">🎄<small>Classico</small></button>
+            <button class="mood-button" type="button" data-mood="🎁">🎁<small>Generoso</small></button>
+            <button class="mood-button" type="button" data-mood="🦌">🦌<small>Scatenato</small></button>
+            <button class="mood-button" type="button" data-mood="☃️">☃️<small>Chill</small></button>
+            <button class="mood-button" type="button" data-mood="🍪">🍪<small>Goloso</small></button>
+          </div>
+        </fieldset>
+
+        <label class="field wish-field"><span>Lascia un indizio a chi ti farà il regalo <i>facoltativo</i></span><textarea name="wish" id="wishInput" maxlength="140" rows="3" placeholder="Es. Amo il caffè, i gialli e le calze improbabili…"></textarea><small><span id="wishCount">0</span>/140</small></label>
+
+        <button class="button button-primary button-full button-large reveal-button" id="revealButton" type="submit"><span>Salva e apri il pacchetto</span><b>🎁</b></button>
+        <p class="privacy-mini">La tua foto e il tuo indizio saranno visibili solo nella dashboard di questa festa.</p>
+      </form>
+    </section>
+
+    <section class="join-card reveal-result-card" id="resultView" hidden>
+      <div class="result-sparkles" aria-hidden="true">✦ · ✧ · ✦</div>
+      <span class="eyebrow">Il tuo Secret Santa è deciso</span>
+      <div class="open-gift" aria-hidden="true"><span>✨</span><b>🎁</b></div>
+      <p class="result-pretitle">Tu farai un regalo a…</p>
+      <h1 id="targetName">Mistero</h1>
+      <p class="secret-reminder">🤫 Non dirlo a nessuno. Nemmeno sotto tortura da biscotti allo zenzero.</p>
+      <div class="result-actions">
+        <a class="button button-primary button-full button-large" id="partyLink" href="#">Entra nella sala comune <span>→</span></a>
+        <button class="button button-ghost button-full" id="editProfileButton" type="button">Aggiorna foto o indizio</button>
+      </div>
+      <div class="screenshot-warning"><span>📵</span><p><strong>Piccolo patto tra elfi:</strong> niente screenshot nel gruppo.</p></div>
+    </section>
+  </main>
+
+  <footer class="join-footer">Un’esperienza <b>Secret Santa Club</b> · fatta con discrezione e panettone</footer>
+  <div class="confetti-layer" id="confettiLayer" aria-hidden="true"></div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+</body>
+</html>

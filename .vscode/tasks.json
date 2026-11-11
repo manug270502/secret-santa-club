@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Avvia sito locale",
+      "type": "shell",
+      "command": "npm start",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Verifica progetto",
+      "type": "shell",
+      "command": "npm run check",
+      "problemMatcher": []
+    },
+    {
+      "label": "Installa dipendenze Netlify",
+      "type": "shell",
+      "command": "npm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "Avvia emulazione Netlify",
+      "type": "shell",
+      "command": "npm run netlify:dev",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

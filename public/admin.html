@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12382d">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Regia della festa — Secret Santa Club</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script src="/js/common.js" defer></script>
+  <script src="/js/admin.js" defer></script>
+</head>
+<body class="page-admin">
+  <div class="snow-layer snow-subtle" data-snow aria-hidden="true"></div>
+  <header class="site-header admin-header">
+    <a class="brand" href="/"><img src="/assets/logo-mark.svg" alt="" width="42" height="42"><span><strong>Secret Santa</strong><small>Regia</small></span></a>
+    <div class="header-actions">
+      <a class="button button-small button-cream" id="openPartyTop" href="#">Apri la dashboard <span>↗</span></a>
+    </div>
+  </header>
+
+  <main class="admin-shell" id="adminApp" hidden>
+    <section class="admin-hero">
+      <div>
+        <div class="eyebrow light">Cabina di regia · link privato admin</div>
+        <h1 id="eventTitle">La tua festa</h1>
+        <p id="eventMeta"></p>
+      </div>
+      <div class="admin-hero-actions">
+        <button class="icon-button light" id="copyAdminLink" type="button" title="Copia il link admin">🔗</button>
+        <button class="icon-button light" id="editEventButton" type="button" title="Modifica evento">✎</button>
+      </div>
+    </section>
+
+    <section class="stats-grid admin-stats">
+      <article class="stat-card"><span class="stat-icon">🧝</span><div><strong id="participantStat">0</strong><small>partecipanti</small></div></article>
+      <article class="stat-card"><span class="stat-icon">📸</span><div><strong id="photoStat">0</strong><small>foto caricate</small></div></article>
+      <article class="stat-card"><span class="stat-icon">🎁</span><div><strong id="revealStat">0</strong><small>pacchetti aperti</small></div></article>
+      <article class="stat-card accent"><span class="stat-icon">⏳</span><div><strong id="dayStat">—</strong><small>giorni allo scambio</small></div></article>
+    </section>
+
+    <section class="admin-grid">
+      <div class="admin-main-column">
+        <article class="panel share-panel">
+          <div class="panel-heading">
+            <div><span class="panel-kicker">PASSO 1</span><h2>Invia gli inviti personali</h2><p>Premi WhatsApp: chat, testo e link personale saranno già pronti. Dentro WhatsApp dovrai solo confermare <b>Invia</b>.</p></div>
+            <div class="panel-heading-actions">
+              <button class="button button-primary button-small" id="openNextWhatsApp" type="button">Apri il prossimo</button>
+              <button class="button button-secondary button-small" id="copyAllButton" type="button">Backup link</button>
+            </div>
+          </div>
+
+          <div class="share-base-box">
+            <label for="shareBase">Indirizzo base da condividere</label>
+            <div class="input-action-row">
+              <input id="shareBase" type="url" list="baseSuggestions" spellcheck="false">
+              <button class="icon-button" id="refreshBase" type="button" title="Usa l'indirizzo corrente">↻</button>
+            </div>
+            <datalist id="baseSuggestions"></datalist>
+            <small id="baseHint">Su Netlify usa l’indirizzo HTTPS mostrato qui. Puoi cambiarlo solo se colleghi un dominio personalizzato.</small>
+          </div>
+
+          <div class="whatsapp-flow-note"><span>💡</span><p><b>Nessun copia-incolla:</b> il messaggio contiene automaticamente il link corretto della persona. Il sito non può premere “Invia” al posto tuo dentro WhatsApp.</p></div>
+
+          <div class="participant-share-list" id="participantShareList"></div>
+        </article>
+
+        <article class="panel" id="wallAdminPanel">
+          <div class="panel-heading compact-heading">
+            <div><span class="panel-kicker">MODERAZIONE</span><h2>Muro degli auguri</h2></div>
+            <span class="soft-badge" id="messageCount">0 messaggi</span>
+          </div>
+          <div class="admin-message-list" id="adminMessageList"></div>
+        </article>
+      </div>
+
+      <aside class="admin-side-column">
+        <article class="panel public-card">
+          <span class="panel-kicker">PASSO 2</span>
+          <div class="public-card-icon">🎄</div>
+          <h2>La dashboard comune</h2>
+          <p>Qui tutti vedono foto, indizi e giochi, ma mai chi deve fare il regalo a chi.</p>
+          <div class="public-link-preview" aria-hidden="true"><span>🎉</span><b>Sala comune</b><small>foto · indizi · giochi</small></div>
+          <div class="vertical-actions">
+            <a class="button button-primary button-full" id="openParty" href="#">Apri dashboard <span>↗</span></a>
+            <button class="button button-ghost button-full" id="copyParty" type="button">Copia link comune</button>
+          </div>
+        </article>
+
+        <article class="panel safety-card">
+          <div class="safety-icon">🔒</div>
+          <div><h3>Segreto al sicuro</h3><p>La dashboard pubblica riceve solo stato, foto e indizi. Gli abbinamenti non vengono inviati al browser.</p></div>
+        </article>
+
+        <article class="panel danger-card">
+          <span class="panel-kicker">PRIMA CHE APRANO</span>
+          <h3>Sorteggio da rifare?</h3>
+          <p>Puoi mescolare di nuovo solo finché nessuno ha aperto il proprio pacchetto.</p>
+          <button class="button button-danger button-full" id="redrawButton" type="button">Rifai il sorteggio</button>
+        </article>
+      </aside>
+    </section>
+  </main>
+
+  <main class="center-state" id="adminLoading">
+    <div class="gift-loader">🎁</div><h1>Accendiamo le lucine…</h1><p>Sto preparando la cabina di regia.</p>
+  </main>
+
+  <dialog class="modal" id="editEventModal">
+    <form method="dialog" class="modal-card" id="editEventForm">
+      <button class="modal-close" value="cancel" aria-label="Chiudi">×</button>
+      <span class="eyebrow">Dettagli evento</span><h2>Aggiorna la festa</h2>
+      <label class="field"><span>Nome</span><input name="name" maxlength="80" required></label>
+      <label class="field"><span>Organizzatore</span><input name="organizer" maxlength="60" required></label>
+      <div class="form-grid two-columns">
+        <label class="field"><span>Data</span><input name="date" type="date"></label>
+        <label class="field"><span>Luogo</span><input name="location" maxlength="100"></label>
+      </div>
+      <button class="button button-primary button-full" value="default" type="submit">Salva modifiche</button>
+    </form>
+  </dialog>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+</body>
+</html>

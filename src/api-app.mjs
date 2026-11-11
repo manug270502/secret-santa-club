@@ -428,7 +428,7 @@ export function createApiHandler({
       if (method === 'GET' && ['/health', '/api/health'].includes(pathname)) {
         return jsonResponse(200, {
           ok: true,
-          service: 'secret-santa-club-netlify-v6',
+          service: 'secret-santa-club-netlify-v6.1.2',
           storage: 'netlify-blobs',
           superAdminConfigured: superAdminConfiguration(env).configured,
         });

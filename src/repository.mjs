@@ -876,25 +876,47 @@ export class SecretSantaRepository {
     const [event, catalog, dataListing, mediaListing, audit] = await Promise.all([
       this.getEventById(eventId, { consistency: 'strong' }),
       this.dataStore.get(CATALOG_KEY, { type: 'json', consistency: 'strong' }),
-      typeof this.dataStore.list === 'function' ? this.dataStore.list({ prefix: INDEX_PREFIX }) : { blobs: [] },
+      typeof this.dataStore.list === 'function' ? this.dataStore.list({}) : { blobs: [] },
       typeof this.mediaStore.list === 'function' ? this.mediaStore.list({}) : { blobs: [] },
-      this.listAudit({ limit: 200 }),
+      this.listAudit({ limit: 500 }),
     ]);
-    const indexHits = [];
+
+    // Recovery legacy v4/v5: scan every data key, not only index/*, because old
+    // deployments may have left records under keys the v6 catalog does not know.
+    const dataHits = [];
+    const metadataHits = [];
     for (const blob of dataListing?.blobs || []) {
+      const metadataText = JSON.stringify(blob?.metadata || {});
+      if (metadataText.includes(eventId)) metadataHits.push(blob.key);
+      if (blob.key === CATALOG_KEY || blob.key.startsWith(AUDIT_PREFIX) || blob.key.startsWith(BACKUP_PREFIX)) continue;
       const value = await this.dataStore.get(blob.key, { type: 'json', consistency: 'eventual' }).catch(() => null);
       const text = JSON.stringify(value || {});
-      if (text.includes(eventId)) indexHits.push(blob.key);
+      if (text.includes(eventId)) dataHits.push(blob.key);
     }
-    const mediaHits = (mediaListing?.blobs || []).filter((blob) => blob?.metadata?.eventId === eventId).map((blob) => blob.key);
-    const auditHits = audit.filter((entry) => entry.eventId === eventId);
+
+    const indexHits = dataHits.filter((key) => key.startsWith(INDEX_PREFIX));
+    const legacyDataHits = dataHits.filter((key) => !key.startsWith(INDEX_PREFIX) && key !== eventKey(eventId));
+    const mediaHits = (mediaListing?.blobs || []).filter((blob) => {
+      const metadataText = JSON.stringify(blob?.metadata || {});
+      return blob?.metadata?.eventId === eventId || metadataText.includes(eventId) || String(blob?.key || '').includes(eventId);
+    }).map((blob) => blob.key);
+    const auditHits = audit.filter((entry) => entry.eventId === eventId || JSON.stringify(entry).includes(eventId));
+    const catalogEntry = catalog?.entries?.[eventId] || null;
     return {
+      scanVersion: 2,
       eventId,
       eventPresent: Boolean(event),
-      catalog: catalog?.entries?.[eventId] || null,
+      catalog: catalogEntry,
       indexKeys: indexHits,
+      legacyDataKeys: legacyDataHits,
+      metadataKeys: [...new Set(metadataHits)],
       mediaKeys: mediaHits,
       audit: auditHits,
+      catalogLegacyHint: catalogEntry?.searchText || '',
+      scanned: {
+        dataKeys: (dataListing?.blobs || []).length,
+        mediaKeys: (mediaListing?.blobs || []).length,
+      },
       recoverableFromBackup: await this.listPurgeBackups(eventId),
     };
   }

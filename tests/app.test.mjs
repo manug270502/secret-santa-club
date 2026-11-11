@@ -56,7 +56,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const { dataStore, api, media } = setup();
   const health = await call(api, '/health');
   assert.equal(health.response.status, 200);
-  assert.equal(health.payload.service, 'secret-santa-club-netlify-v6');
+  assert.equal(health.payload.service, 'secret-santa-club-netlify-v6.1.2');
   assert.equal(health.payload.storage, 'netlify-blobs');
 
   const creation = await createParty(api);

@@ -544,9 +544,13 @@ document.addEventListener('DOMContentLoaded', () => {
             `ID: ${roomId}`,
             `Catalogo: ${d.catalog ? 'PRESENTE' : 'MANCANTE'}`,
             `Indici residui: ${d.indexKeys.length}`,
+            `Dati legacy/non indicizzati: ${d.legacyDataKeys?.length || 0}`,
+            `Metadata collegati: ${d.metadataKeys?.length || 0}`,
             `Foto residue rilevate: ${d.mediaKeys.length}`,
             `Audit collegati: ${d.audit.length}`,
             `Backup purge: ${d.recoverableFromBackup.length}`,
+            `Chiavi analizzate: ${d.scanned?.dataKeys || 0} dati + ${d.scanned?.mediaKeys || 0} media`,
+            `Indizio catalogo legacy: ${d.catalogLegacyHint ? 'PRESENTE' : 'MANCANTE'}`,
             '',
             'Non viene modificato alcun dato.',
           ].join('\n'));

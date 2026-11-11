@@ -40,7 +40,7 @@ git init
 git add .
 git commit -m "Prima versione Secret Santa Netlify"
 git branch -M main
-git remote add origin URL_DEL_TUO_REPOSITORY
+git remote add origin https://github.com/manug270502/secret-santa-club
 git push -u origin main
 ```
 

@@ -13,11 +13,13 @@ const required = [
   'src/repository.mjs',
   'public/index.html',
   'public/admin.html',
+  'public/my-events.html',
   'public/participant.html',
   'public/dashboard.html',
   'public/js/common.js',
   'public/js/home.js',
   'public/js/admin.js',
+  'public/js/my-events.js',
   'public/js/participant.js',
   'public/js/dashboard.js',
   'public/css/styles.css',
@@ -48,6 +50,7 @@ const syntaxFiles = [
   'public/js/common.js',
   'public/js/home.js',
   'public/js/admin.js',
+  'public/js/my-events.js',
   'public/js/participant.js',
   'public/js/dashboard.js',
 ];
@@ -62,5 +65,5 @@ for (const relative of syntaxFiles) {
   }
 }
 
-console.log('✓ Struttura Netlify verificata: frontend, Functions, Blob e inviti WhatsApp click-to-chat pronti.');
+console.log('✓ Struttura Netlify verificata: frontend, Functions, Blob, recupero inviti e WhatsApp click-to-chat pronti.');
 console.log(`✓ Sintassi verificata per ${syntaxFiles.length} file JavaScript.`);

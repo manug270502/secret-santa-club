@@ -62,6 +62,7 @@ function safePublicPath(relative) {
 }
 
 function staticTarget(pathname) {
+  if (pathname === '/my-events') return 'my-events.html';
   if (/^\/admin\/[^/]+$/.test(pathname)) return 'admin.html';
   if (/^\/join\/[^/]+$/.test(pathname)) return 'participant.html';
   if (/^\/party\/[^/]+$/.test(pathname)) return 'dashboard.html';

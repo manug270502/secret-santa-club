@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#12382d">
+  <meta name="robots" content="noindex,nofollow">
+  <title>I miei inviti — Secret Santa Club</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script src="/js/common.js" defer></script>
+  <script src="/js/my-events.js" defer></script>
+</head>
+<body class="page-recovery">
+  <div class="snow-layer snow-subtle" data-snow aria-hidden="true"></div>
+  <header class="site-header recovery-header">
+    <a class="brand" href="/" aria-label="Torna alla homepage"><img src="/assets/logo-mark.svg" alt="" width="42" height="42"><span><strong>Secret Santa</strong><small>I miei inviti</small></span></a>
+    <a class="button button-small button-cream" href="/#crea">Crea una festa</a>
+  </header>
+
+  <main class="recovery-shell">
+    <section class="recovery-hero">
+      <span class="eyebrow light">Ufficio oggetti smarriti del Polo Nord</span>
+      <h1>Ritrova il tuo<br><em>pacchetto segreto.</em></h1>
+      <p>Il numero individua le feste. Il codice elfo personale protegge il tuo link e il nome che hai pescato.</p>
+    </section>
+
+    <section class="recovery-search-panel panel" id="recoverySearchPanel">
+      <div class="recovery-search-heading"><span>📱</span><div><h2>Qual è il tuo numero?</h2><p>Usa lo stesso numero WhatsApp inserito dall’organizzatore.</p></div></div>
+      <form class="recovery-search-form" id="recoverySearchForm" novalidate>
+        <label class="field"><span>Numero WhatsApp</span><input name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" placeholder="+39 333 123 4567" required></label>
+        <button class="button button-primary button-large" type="submit">Cerca le mie feste <span>→</span></button>
+      </form>
+      <p class="recovery-privacy"><span>🔒</span> Non inviamo SMS e non mostriamo l’abbinamento senza il codice elfo.</p>
+    </section>
+
+    <section class="recovery-loading panel" id="recoveryLoading" hidden>
+      <div class="gift-loader">🧭</div><h2>Seguiamo le impronte nella neve…</h2><p>Sto cercando le feste collegate al numero.</p>
+    </section>
+
+    <section class="recovery-results" id="recoveryResults" hidden>
+      <div class="recovery-results-heading">
+        <div><span class="eyebrow">Le tue stanze</span><h2 id="recoveryResultsTitle">Feste trovate</h2><p id="recoveryPhoneLabel"></p></div>
+        <button class="button button-ghost" id="changeRecoveryPhone" type="button">Cambia numero</button>
+      </div>
+      <div class="recovery-room-list" id="recoveryRoomList"></div>
+    </section>
+
+    <section class="recovery-empty panel" id="recoveryEmpty" hidden>
+      <div class="empty-snowman" aria-hidden="true">☃️</div>
+      <span class="eyebrow">Nessuna slitta parcheggiata qui</span>
+      <h2>Questo numero non partecipa ancora a nessuna festa.</h2>
+      <p>Forse l’organizzatore ha usato un altro numero, oppure è il momento di prendere in mano la situazione.</p>
+      <div class="recovery-empty-actions"><button class="button button-ghost" id="retryRecovery" type="button">Prova un altro numero</button><a class="button button-primary" href="/#crea">Crea tu un Secret Santa</a></div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="brand footer-brand"><img src="/assets/logo-mark.svg" alt="" width="38" height="38"><span><strong>Secret Santa</strong><small>Club</small></span></div><p>Perdere un link è umano. Ritrovarlo è da elfi.</p><a href="/">Homepage ↑</a></footer>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+</body>
+</html>

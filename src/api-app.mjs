@@ -3,12 +3,15 @@ import {
   assignSingleCycle,
   assertOpaqueToken,
   buildEvent,
+  cleanRecoveryCode,
   cleanText,
   isAllowedMood,
   isAllowedWallEmoji,
   nextCelebrationDate,
   normalizeE164,
+  normalizeGiftProfile,
   normalizedInviteState,
+  parseBudgetCents,
   token,
   validateDate,
 } from './domain.mjs';
@@ -149,21 +152,47 @@ async function parseProfileForm(request) {
   const wish = cleanText(form.get('wish'), 140);
   const rawMood = cleanText(form.get('mood'), 4) || '🎄';
   const mood = isAllowedMood(rawMood) ? rawMood : '🎄';
+  let rawInterests = [];
+  try { rawInterests = JSON.parse(String(form.get('interests') || '[]')); } catch { rawInterests = []; }
+  const giftProfile = normalizeGiftProfile({
+    favoriteColor: form.get('favoriteColor'),
+    interests: rawInterests,
+    giftStyle: form.get('giftStyle'),
+    avoid: form.get('avoid'),
+  });
   const photo = form.get('photo');
-  if (!photo || typeof photo === 'string' || photo.size === 0) return { wish, mood, photo: null };
+  if (!photo || typeof photo === 'string' || photo.size === 0) return { wish, mood, giftProfile, photo: null };
   if (photo.size > MAX_PHOTO_BYTES) {
     throw new HttpError(413, 'La foto supera 4 MB. Il sito prova a comprimerla automaticamente: riprova o scegline un’altra.');
   }
   const bytes = await photo.arrayBuffer();
   const detected = detectImage(bytes, cleanText(photo.type, 80).toLowerCase());
   if (!detected) throw new HttpError(400, 'Formato immagine non supportato. Usa JPG, PNG, WebP o HEIC.');
-  return { wish, mood, photo: { bytes, ...detected } };
+  return { wish, mood, giftProfile, photo: { bytes, ...detected } };
 }
 
 function demoEnabled(env) {
   if (env.ENABLE_DEMO === 'true') return true;
   if (env.ENABLE_DEMO === 'false') return false;
   return env.CONTEXT === 'dev' || env.NETLIFY_DEV === 'true';
+}
+
+function publicGiftProfile(participant) {
+  return normalizeGiftProfile(participant?.giftProfile);
+}
+
+function recoveryRoomPayload(event, participant) {
+  return {
+    eventId: event.id,
+    name: event.name,
+    organizer: event.organizer,
+    date: event.date || '',
+    location: event.location || '',
+    budgetCents: Number.isInteger(event.budgetCents) ? event.budgetCents : null,
+    participantName: participant.name,
+    profileComplete: Boolean(participant.photoUrl),
+    revealed: Boolean(participant.revealedAt),
+  };
 }
 
 export function createApiHandler({
@@ -180,7 +209,7 @@ export function createApiHandler({
       const method = request.method.toUpperCase();
 
       if (method === 'GET' && ['/health', '/api/health'].includes(pathname)) {
-        return jsonResponse(200, { ok: true, service: 'secret-santa-club-netlify-v4', storage: 'netlify-blobs' });
+        return jsonResponse(200, { ok: true, service: 'secret-santa-club-netlify-v5', storage: 'netlify-blobs' });
       }
 
       if (method === 'GET' && pathname === '/api/system') {
@@ -204,6 +233,54 @@ export function createApiHandler({
         const event = buildEvent(await readJson(request));
         await repository.createEvent(event);
         return jsonResponse(201, { ok: true, eventId: event.id, ...eventPaths(event, request, env) });
+      }
+
+      if (method === 'POST' && pathname === '/api/recovery/lookup') {
+        const body = await readJson(request);
+        const phone = normalizeE164(body.phone);
+        if (!phone) throw new HttpError(400, 'Inserisci un numero di telefono valido con prefisso internazionale.');
+        const rooms = await repository.findRecoveryRoomsByPhone(phone);
+        return jsonResponse(200, {
+          ok: true,
+          rooms: rooms
+            .map(({ event, participant }) => recoveryRoomPayload(event, participant))
+            .sort((left, right) => String(right.date || '').localeCompare(String(left.date || ''))),
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/recovery/unlock') {
+        const body = await readJson(request);
+        const phone = normalizeE164(body.phone);
+        const eventId = assertOpaqueToken(body.eventId, 'Festa');
+        const code = cleanRecoveryCode(body.recoveryCode);
+        if (!phone || code.length < 8) {
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          throw new HttpError(403, 'Numero o codice elfo non corretti.');
+        }
+        const found = await repository.getRecoveryAccess({ phone, eventId, code });
+        if (!found) {
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          throw new HttpError(403, 'Numero o codice elfo non corretti.');
+        }
+        const target = found.participant.revealedAt
+          ? found.event.participants.find((item) => item.id === found.participant.assignedId)
+          : null;
+        return jsonResponse(200, {
+          ok: true,
+          room: {
+            ...recoveryRoomPayload(found.event, found.participant),
+            publicPath: `/party/${found.event.publicToken}`,
+            participantPath: `/join/${found.participant.token}`,
+            targetName: target?.name || null,
+            targetProfile: target ? {
+              name: target.name,
+              photoUrl: target.photoUrl,
+              wish: target.wish,
+              mood: target.mood,
+              giftProfile: publicGiftProfile(target),
+            } : null,
+          },
+        });
       }
 
       if (method === 'POST' && pathname === '/api/demo') {
@@ -241,15 +318,30 @@ export function createApiHandler({
         const body = await readJson(request);
         const phone = normalizeE164(body.phone);
         if (!phone) throw new HttpError(400, 'Inserisci un numero WhatsApp valido con prefisso internazionale.');
-        const outcome = await repository.mutateEventByAdminToken(adminToken, (event) => {
-          const participant = event.participants.find((item) => item.id === participantId);
-          if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
-          const changed = normalizeE164(participant.phone) !== phone;
-          participant.phone = phone;
-          if (changed) participant.invite = normalizedInviteState();
-          return { phone: participant.phone, invite: normalizedInviteState(participant.invite) };
-        });
+        const currentEvent = await repository.ensureEventRecoveryByAdminToken(adminToken);
+        if (!currentEvent) throw new HttpError(404, 'Evento non trovato.');
+        const currentParticipant = currentEvent.participants.find((item) => item.id === participantId);
+        if (!currentParticipant) throw new HttpError(404, 'Partecipante non trovato.');
+        const previousPhone = normalizeE164(currentParticipant.phone);
+        const changed = previousPhone !== phone;
+        if (changed) await repository.addPhoneIndexEntry(phone, currentEvent.id, participantId);
+        let outcome;
+        try {
+          outcome = await repository.mutateEventByAdminToken(adminToken, (event) => {
+            const participant = event.participants.find((item) => item.id === participantId);
+            if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+            participant.phone = phone;
+            if (changed) participant.invite = normalizedInviteState();
+            return { phone: participant.phone, invite: normalizedInviteState(participant.invite) };
+          });
+        } catch (error) {
+          if (changed) await repository.removePhoneIndexEntry(phone, currentEvent.id, participantId).catch(() => {});
+          throw error;
+        }
         if (!outcome) throw new HttpError(404, 'Evento non trovato.');
+        if (changed && previousPhone) {
+          await repository.removePhoneIndexEntry(previousPhone, currentEvent.id, participantId).catch(() => {});
+        }
         return jsonResponse(200, { ok: true, ...outcome.result });
       }
 
@@ -308,7 +400,7 @@ export function createApiHandler({
       match = /^\/api\/admin\/([^/]+)$/.exec(pathname);
       if (match && method === 'GET') {
         const adminToken = assertOpaqueToken(match[1], 'Link admin');
-        const event = await repository.getEventByAdminToken(adminToken);
+        const event = await repository.ensureEventRecoveryByAdminToken(adminToken);
         if (!event) throw new HttpError(404, 'Evento non trovato.');
         const base = getBaseUrl(request, env);
         return jsonResponse(200, {
@@ -319,13 +411,16 @@ export function createApiHandler({
             organizerParticipates: Boolean(event.organizerParticipates),
             date: event.date,
             location: event.location,
+            budgetCents: Number.isInteger(event.budgetCents) ? event.budgetCents : null,
             createdAt: event.createdAt,
             ...eventPaths(event, request, env),
             participants: event.participants.map((participant) => ({
               id: participant.id,
               name: participant.name,
               phone: participant.phone,
+              recoveryCode: cleanRecoveryCode(participant.recoveryCode),
               isOrganizer: Boolean(participant.isOrganizer),
+              giftProfile: publicGiftProfile(participant),
               invite: normalizedInviteState(participant.invite),
               path: `/join/${participant.token}`,
               url: `${base}/join/${participant.token}`,
@@ -360,6 +455,7 @@ export function createApiHandler({
           }
           event.date = validateDate(body.date) || event.date;
           event.location = cleanText(body.location, 100);
+          if (Object.hasOwn(body, 'budget')) event.budgetCents = parseBudgetCents(body.budget);
           return { updated: true };
         });
         if (!outcome) throw new HttpError(404, 'Evento non trovato.');
@@ -369,6 +465,7 @@ export function createApiHandler({
       match = /^\/api\/participant\/([^/]+)\/profile$/.exec(pathname);
       if (match && method === 'POST') {
         const participantToken = assertOpaqueToken(match[1], 'Invito');
+        await repository.ensureEventRecoveryByParticipantToken(participantToken);
         const found = await repository.getParticipantByToken(participantToken);
         if (!found) throw new HttpError(404, 'Invito non valido.');
         const form = await parseProfileForm(request);
@@ -393,8 +490,9 @@ export function createApiHandler({
             }
             participant.wish = form.wish;
             participant.mood = form.mood;
+            participant.giftProfile = form.giftProfile;
             participant.profileUpdatedAt = new Date().toISOString();
-            return { oldPhotoToken, photoUrl: participant.photoUrl };
+            return { oldPhotoToken, photoUrl: participant.photoUrl, giftProfile: participant.giftProfile };
           });
           if (!outcome) throw new HttpError(404, 'Invito non valido.');
         } catch (error) {
@@ -404,25 +502,36 @@ export function createApiHandler({
         if (uploaded && outcome.result.oldPhotoToken && outcome.result.oldPhotoToken !== uploaded.photoToken) {
           await repository.deletePhoto(outcome.result.oldPhotoToken).catch(() => {});
         }
-        return jsonResponse(200, { ok: true, photoUrl: outcome.result.photoUrl });
+        return jsonResponse(200, { ok: true, photoUrl: outcome.result.photoUrl, giftProfile: outcome.result.giftProfile });
       }
 
       match = /^\/api\/participant\/([^/]+)\/reveal$/.exec(pathname);
       if (match && method === 'POST') {
         const participantToken = assertOpaqueToken(match[1], 'Invito');
+        await repository.ensureEventRecoveryByParticipantToken(participantToken);
         const outcome = await repository.mutateParticipantByToken(participantToken, ({ event, participant }) => {
           if (!participant.photoUrl) throw new HttpError(400, 'Aggiungi prima una foto per aprire il pacchetto.');
           if (!participant.revealedAt) participant.revealedAt = new Date().toISOString();
           const target = event.participants.find((item) => item.id === participant.assignedId);
-          return { targetName: target?.name || 'Mistero' };
+          return {
+            targetName: target?.name || 'Mistero',
+            targetProfile: target ? {
+              name: target.name,
+              photoUrl: target.photoUrl,
+              wish: target.wish,
+              mood: target.mood,
+              giftProfile: publicGiftProfile(target),
+            } : null,
+          };
         });
         if (!outcome) throw new HttpError(404, 'Invito non valido.');
-        return jsonResponse(200, { ok: true, targetName: outcome.result.targetName });
+        return jsonResponse(200, { ok: true, targetName: outcome.result.targetName, targetProfile: outcome.result.targetProfile });
       }
 
       match = /^\/api\/participant\/([^/]+)$/.exec(pathname);
       if (match && method === 'GET') {
         const participantToken = assertOpaqueToken(match[1], 'Invito');
+        await repository.ensureEventRecoveryByParticipantToken(participantToken);
         const found = await repository.getParticipantByToken(participantToken);
         if (!found) throw new HttpError(404, 'Invito non valido o scaduto.');
         const target = found.participant.revealedAt
@@ -435,6 +544,7 @@ export function createApiHandler({
             organizer: found.event.organizer,
             date: found.event.date,
             location: found.event.location,
+            budgetCents: Number.isInteger(found.event.budgetCents) ? found.event.budgetCents : null,
             publicPath: `/party/${found.event.publicToken}`,
           },
           participant: {
@@ -442,9 +552,17 @@ export function createApiHandler({
             photoUrl: found.participant.photoUrl,
             wish: found.participant.wish,
             mood: found.participant.mood,
+            giftProfile: publicGiftProfile(found.participant),
             revealed: Boolean(found.participant.revealedAt),
             revealedAt: found.participant.revealedAt,
             targetName: target?.name || null,
+            targetProfile: target ? {
+              name: target.name,
+              photoUrl: target.photoUrl,
+              wish: target.wish,
+              mood: target.mood,
+              giftProfile: publicGiftProfile(target),
+            } : null,
           },
         });
       }
@@ -477,7 +595,7 @@ export function createApiHandler({
       match = /^\/api\/public\/([^/]+)$/.exec(pathname);
       if (match && method === 'GET') {
         const publicToken = assertOpaqueToken(match[1], 'Festa');
-        const event = await repository.getEventByPublicToken(publicToken);
+        const event = await repository.ensureEventRecoveryByPublicToken(publicToken);
         if (!event) throw new HttpError(404, 'Festa non trovata.');
         return jsonResponse(200, {
           ok: true,
@@ -487,6 +605,7 @@ export function createApiHandler({
             organizerParticipates: Boolean(event.organizerParticipates),
             date: event.date,
             location: event.location,
+            budgetCents: Number.isInteger(event.budgetCents) ? event.budgetCents : null,
             participantCount: event.participants.length,
             revealedCount: event.participants.filter((participant) => participant.revealedAt).length,
             participants: event.participants.map((participant) => ({
@@ -496,6 +615,7 @@ export function createApiHandler({
               photoUrl: participant.photoUrl,
               wish: participant.wish,
               mood: participant.mood,
+              giftProfile: publicGiftProfile(participant),
               revealed: Boolean(participant.revealedAt),
             })),
             messages: [...event.messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50),

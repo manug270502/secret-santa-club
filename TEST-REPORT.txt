@@ -1,18 +1,32 @@
-SECRET SANTA CLUB NETLIFY FREE v4.0 - RAPPORTO TEST
+SECRET SANTA CLUB NETLIFY FREE v5.0 - RAPPORTO TEST
 
-Controlli previsti da npm run check:
+Controlli eseguiti da npm run check:
 
 - struttura Netlify e file obbligatori
-- sintassi di tutti i file JavaScript
+- sintassi di 13 file JavaScript
 - creazione evento, sorteggio e privacy
 - admin partecipante e admin non partecipante
 - validazione e normalizzazione numeri WhatsApp
-- costruzione URL wa.me con messaggio e link personale
-- salvataggio e reset dello stato "chat aperta"
-- reset automatico dello stato quando cambia il numero
-- caricamento foto, rivelazione e dashboard comune
-- scritture concorrenti del muro degli auguri
-- route Netlify e assenza di dipendenze da provider WhatsApp
-- regole responsive per home, admin, partecipante e dashboard
+- costruzione URL wa.me con link, budget e codice personale
+- caricamento foto, profilo regalo, rivelazione e dashboard comune
+- budget e valori dei profili validati sul server
+- recupero per numero con una o piu feste
+- rifiuto di codice elfo errato e sblocco con codice corretto
+- nome estratto non restituito prima della rivelazione
+- cambio numero con aggiornamento dell'indice di recupero
+- migrazione compatibile di un evento v4
+- scritture concorrenti del muro degli auguri e degli indici tramite ETag
+- route Netlify e assenza di provider WhatsApp automatici
+- regole responsive per home, admin, recupero, partecipante e dashboard
 
-L'apertura dell'app WhatsApp e il tap finale su Invia dipendono dal dispositivo e non possono essere simulati completamente dai test API.
+RISULTATO AUTOMATICO: 13 test superati su 13.
+
+QA VISIVA RESPONSIVE
+
+- viewport mobile verificata senza overflow orizzontale
+- campi nome, data, luogo e budget verificati alla stessa larghezza
+- recupero verificato con nome coperto e successivamente visibile
+- card profilo e card regalo verificate su mobile
+- nessun errore console rilevato nel percorso statico di QA
+
+Nota: la correzione usa regole specifiche compatibili con Safari iOS, ma il test automatico non sostituisce una prova su un iPhone fisico. L'apertura di WhatsApp e il tap finale su Invia dipendono dal dispositivo.

@@ -20,6 +20,7 @@
     </a>
     <nav class="header-actions" aria-label="Navigazione principale">
       <a class="text-link hide-mobile" href="#come-funziona">Come funziona</a>
+      <a class="button button-small button-ghost header-recover-button" href="#ritrova">Trova invito</a>
       <a class="button button-small button-cream" href="#crea">Crea la festa</a>
     </nav>
   </header>
@@ -32,7 +33,8 @@
         <p class="hero-lead">Organizza il sorteggio, apri le chat WhatsApp con link e testo già pronti e trasforma l’attesa in una piccola festa online.</p>
         <div class="hero-cta">
           <a class="button button-primary button-large" href="#crea">Crea il tuo Secret Santa <span aria-hidden="true">→</span></a>
-          <button class="button button-ghost button-large" id="demoButton" type="button">Apri una demo</button>
+          <a class="button button-ghost button-large" href="#ritrova">Ho perso il mio link</a>
+          <button class="text-button hero-demo-button" id="demoButton" type="button">Apri una demo</button>
         </div>
         <div class="trust-row" aria-label="Caratteristiche principali">
           <span>🔒 Abbinamenti privati</span>
@@ -98,8 +100,27 @@
           <span class="step-number">03</span>
           <div class="step-icon">🎉</div>
           <h3>Aspettate insieme</h3>
-          <p>Foto, indizi regalo, countdown, bingo, missioni e muro degli auguri. Gli abbinamenti restano invisibili.</p>
+          <p>Foto, colori preferiti, passioni, countdown, bingo, missioni e muro degli auguri. Gli abbinamenti restano invisibili.</p>
         </article>
+      </div>
+    </section>
+
+    <section class="section recover-section" id="ritrova">
+      <div class="recover-card">
+        <div class="recover-copy">
+          <span class="eyebrow">La bussola degli elfi</span>
+          <h2>Hai perso il link del tuo invito?</h2>
+          <p>Inserisci il numero WhatsApp usato dall’organizzatore. Ti mostreremo le feste associate e potrai riaprire il tuo invito con il codice elfo ricevuto nel messaggio.</p>
+          <div class="recover-security-note"><span>🔐</span><p>Il numero da solo non mostra l’abbinamento: serve anche il codice personale, così gli amici curiosi restano fuori.</p></div>
+        </div>
+        <form class="recover-home-form" id="recoverPhoneForm" novalidate>
+          <label class="field">
+            <span>Il tuo numero WhatsApp</span>
+            <input type="tel" name="phone" maxlength="30" autocomplete="tel" inputmode="tel" placeholder="+39 333 123 4567" required>
+          </label>
+          <button class="button button-primary button-large button-full" type="submit"><span>Trova le mie feste</span><b aria-hidden="true">🔎</b></button>
+          <small>Nessun SMS e nessun costo: il controllo avviene con il codice elfo dell’invito.</small>
+        </form>
       </div>
     </section>
 
@@ -111,7 +132,7 @@
         <div class="feature-list compact">
           <span><b>✓</b> Nessuna registrazione per gli invitati</span>
           <span><b>✓</b> Foto caricata o scattata al momento</span>
-          <span><b>✓</b> Dashboard pubblica senza spoiler</span>
+          <span><b>✓</b> Budget e preferenze regalo in un unico posto</span>
         </div>
       </div>
 
@@ -130,6 +151,10 @@
             <input type="date" name="date">
           </label>
           <label class="field">
+            <span>Budget per regalo</span>
+            <div class="money-input"><span aria-hidden="true">€</span><input type="number" name="budget" min="0" max="100000" step="0.01" inputmode="decimal" placeholder="25"></div>
+          </label>
+          <label class="field field-wide">
             <span>Luogo</span>
             <input type="text" name="location" maxlength="100" placeholder="Es. A casa di Giulia">
           </label>
@@ -181,7 +206,7 @@
         <div>
           <span class="eyebrow">La sala comune</span>
           <h2>Un posto dove perdere tempo<br>prima di scambiarsi i regali.</h2>
-          <p>Controlla chi ha aperto il proprio pacchetto, scopri gli indizi regalo e sfida il gruppo con missioni leggere e bingo.</p>
+          <p>Controlla chi ha aperto il proprio pacchetto, scorri le schede con passioni e preferenze regalo e sfida il gruppo con missioni leggere e bingo.</p>
           <div class="tag-row"><span>Countdown</span><span>Bingo</span><span>Missioni</span><span>Muro auguri</span></div>
         </div>
         <div class="showcase-stack" aria-hidden="true">

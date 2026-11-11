@@ -25,6 +25,7 @@
 
     <section class="join-card profile-card" id="profileView" hidden>
       <div class="join-event-label" id="joinEventLabel">SECRET SANTA</div>
+      <div class="join-event-meta" id="joinEventMeta"></div>
       <h1>Ciao <span id="participantName">Elfo</span>! <span aria-hidden="true">👋</span></h1>
       <p class="join-intro">Prima di scoprire chi hai pescato, fatti riconoscere nella sala comune.</p>
 
@@ -58,10 +59,38 @@
           </div>
         </fieldset>
 
+        <section class="gift-preferences" aria-labelledby="giftPreferencesTitle">
+          <div class="gift-preferences-heading"><span>💡</span><div><h2 id="giftPreferencesTitle">Dai una mano a chi ti farà il regalo</h2><p>Queste informazioni saranno visibili nella sala comune e nella scheda del tuo abbinamento.</p></div></div>
+          <div class="form-grid two-columns gift-preference-grid">
+            <label class="field"><span>Colore preferito</span><select id="favoriteColor" name="favoriteColor">
+              <option value="">Scegli liberamente</option><option value="rosso">Rosso</option><option value="verde">Verde</option><option value="blu">Blu</option><option value="nero">Nero</option><option value="bianco">Bianco</option><option value="rosa">Rosa</option><option value="viola">Viola</option><option value="giallo-arancione">Giallo / arancione</option><option value="multicolore">Multicolore</option><option value="nessuna-preferenza">Nessuna preferenza</option>
+            </select></label>
+            <label class="field"><span>Tipo di regalo</span><select id="giftStyle" name="giftStyle">
+              <option value="">Nessuna preferenza</option><option value="utile">Qualcosa di utile</option><option value="divertente">Qualcosa di divertente</option><option value="esperienza">Un’esperienza</option><option value="goloso">Qualcosa di goloso</option><option value="creativo">Qualcosa di creativo</option><option value="sorpresa">Sorprendimi</option>
+            </select></label>
+          </div>
+          <fieldset class="interest-fieldset"><legend>Le tue passioni <small>massimo 5</small></legend><div class="interest-options" id="interestOptions">
+            <label><input type="checkbox" value="tecnologia"><span>💻 Tecnologia</span></label>
+            <label><input type="checkbox" value="sport"><span>⚽ Sport</span></label>
+            <label><input type="checkbox" value="musica"><span>🎧 Musica</span></label>
+            <label><input type="checkbox" value="cinema-serie"><span>🎬 Cinema e serie</span></label>
+            <label><input type="checkbox" value="libri"><span>📚 Libri</span></label>
+            <label><input type="checkbox" value="cucina"><span>🍝 Cucina</span></label>
+            <label><input type="checkbox" value="viaggi"><span>✈️ Viaggi</span></label>
+            <label><input type="checkbox" value="gaming"><span>🎮 Gaming</span></label>
+            <label><input type="checkbox" value="arte-creativita"><span>🎨 Creatività</span></label>
+            <label><input type="checkbox" value="benessere"><span>🧘 Benessere</span></label>
+            <label><input type="checkbox" value="natura"><span>🌿 Natura</span></label>
+            <label><input type="checkbox" value="moda"><span>🧣 Moda</span></label>
+            <label><input type="checkbox" value="collezionismo"><span>🧸 Collezionismo</span></label>
+          </div></fieldset>
+          <label class="field"><span>Da evitare <i>facoltativo</i></span><textarea id="avoidInput" name="avoid" maxlength="140" rows="2" placeholder="Es. Niente profumi, sono allergico alle nocciole…"></textarea><small><span id="avoidCount">0</span>/140</small></label>
+        </section>
+
         <label class="field wish-field"><span>Lascia un indizio a chi ti farà il regalo <i>facoltativo</i></span><textarea name="wish" id="wishInput" maxlength="140" rows="3" placeholder="Es. Amo il caffè, i gialli e le calze improbabili…"></textarea><small><span id="wishCount">0</span>/140</small></label>
 
         <button class="button button-primary button-full button-large reveal-button" id="revealButton" type="submit"><span>Salva e apri il pacchetto</span><b>🎁</b></button>
-        <p class="privacy-mini">La tua foto e il tuo indizio saranno visibili solo nella dashboard di questa festa.</p>
+        <p class="privacy-mini">Foto, indizio e preferenze saranno visibili soltanto nella stanza di questa festa.</p>
       </form>
     </section>
 
@@ -72,6 +101,10 @@
       <p class="result-pretitle">Tu farai un regalo a…</p>
       <h1 id="targetName">Mistero</h1>
       <p class="secret-reminder">🤫 Non dirlo a nessuno. Nemmeno sotto tortura da biscotti allo zenzero.</p>
+      <section class="target-gift-card" id="targetGiftCard" hidden>
+        <div class="target-gift-heading"><span class="avatar target-avatar" id="targetAvatar">?</span><div><small>QUALCHE IDEA PER IL REGALO</small><h2 id="targetProfileName">Il tuo abbinamento</h2></div></div>
+        <div class="target-profile-content" id="targetProfileContent"></div>
+      </section>
       <div class="result-actions">
         <a class="button button-primary button-full button-large" id="partyLink" href="#">Entra nella sala comune <span>→</span></a>
         <button class="button button-ghost button-full" id="editProfileButton" type="button">Aggiorna foto o indizio</button>

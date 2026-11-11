@@ -66,6 +66,42 @@
     }).format(date);
   }
 
+  function formatBudget(cents) {
+    if (!Number.isInteger(cents) || cents < 0) return '';
+    return new Intl.NumberFormat('it-IT', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  }
+
+  const giftLabels = {
+    colors: {
+      rosso: 'Rosso', verde: 'Verde', blu: 'Blu', nero: 'Nero', bianco: 'Bianco',
+      rosa: 'Rosa', viola: 'Viola', 'giallo-arancione': 'Giallo / arancione',
+      multicolore: 'Multicolore', 'nessuna-preferenza': 'Nessuna preferenza',
+    },
+    interests: {
+      tecnologia: 'Tecnologia', sport: 'Sport', musica: 'Musica', 'cinema-serie': 'Cinema e serie',
+      libri: 'Libri', cucina: 'Cucina', viaggi: 'Viaggi', gaming: 'Gaming',
+      'arte-creativita': 'Arte e creatività', benessere: 'Benessere', natura: 'Natura',
+      moda: 'Moda', collezionismo: 'Collezionismo',
+    },
+    styles: {
+      utile: 'Qualcosa di utile', divertente: 'Qualcosa di divertente', esperienza: 'Un’esperienza',
+      goloso: 'Qualcosa di goloso', creativo: 'Qualcosa di creativo', sorpresa: 'Sorprendimi',
+    },
+  };
+
+  function giftLabel(group, value) {
+    return giftLabels[group]?.[value] || value || '';
+  }
+
+  function hasGiftProfile(profile = {}) {
+    return Boolean(profile.favoriteColor || profile.giftStyle || profile.avoid || profile.interests?.length);
+  }
+
   function relativeTime(value) {
     if (!value) return '';
     const date = new Date(value);
@@ -182,6 +218,9 @@
     copyText,
     tokenFromPath,
     formatDate,
+    formatBudget,
+    giftLabel,
+    hasGiftProfile,
     relativeTime,
     daysUntil,
     initials,

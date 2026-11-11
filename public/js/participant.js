@@ -12,6 +12,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const cameraVideo = UI.qs('#cameraVideo');
   const cameraCanvas = UI.qs('#cameraCanvas');
   const wishInput = UI.qs('#wishInput');
+  const avoidInput = UI.qs('#avoidInput');
+  const favoriteColor = UI.qs('#favoriteColor');
+  const giftStyle = UI.qs('#giftStyle');
+  const interestInputs = UI.qsa('#interestOptions input[type="checkbox"]');
   let state = null;
   let selectedPhoto = null;
   let cameraStream = null;
@@ -45,13 +49,79 @@ document.addEventListener('DOMContentLoaded', async () => {
     profileView.hidden = false;
   }
 
-  function showResult(targetName, celebrate = false) {
+  function renderTargetProfile(targetProfile) {
+    const card = UI.qs('#targetGiftCard');
+    const content = UI.qs('#targetProfileContent');
+    content.replaceChildren();
+    if (!targetProfile) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+    UI.qs('#targetProfileName').textContent = targetProfile.name || 'Il tuo abbinamento';
+    UI.mountAvatar(UI.qs('#targetAvatar'), targetProfile, 'target-avatar');
+    const profile = targetProfile.giftProfile || {};
+
+    const rows = [];
+    if (profile.favoriteColor) rows.push(['🎨 Colore', UI.giftLabel('colors', profile.favoriteColor)]);
+    if (profile.giftStyle) rows.push(['🎁 Preferisce', UI.giftLabel('styles', profile.giftStyle)]);
+    if (profile.interests?.length) rows.push(['✨ Passioni', profile.interests.map((item) => UI.giftLabel('interests', item)).join(' · ')]);
+    if (targetProfile.wish) rows.push(['💭 Indizio', targetProfile.wish]);
+    if (profile.avoid) rows.push(['🚫 Da evitare', profile.avoid]);
+
+    if (!rows.length) {
+      const empty = document.createElement('p');
+      empty.className = 'target-profile-empty';
+      empty.textContent = 'Non ha ancora lasciato preferenze. Tocca alla tua creatività da elfo.';
+      content.appendChild(empty);
+      return;
+    }
+    rows.forEach(([label, value]) => {
+      const row = document.createElement('div');
+      const key = document.createElement('strong');
+      key.textContent = label;
+      const text = document.createElement('span');
+      text.textContent = value;
+      row.append(key, text);
+      content.appendChild(row);
+    });
+  }
+
+  function syncGiftProfile(profile = {}) {
+    favoriteColor.value = profile.favoriteColor || '';
+    giftStyle.value = profile.giftStyle || '';
+    avoidInput.value = profile.avoid || '';
+    UI.qs('#avoidCount').textContent = avoidInput.value.length;
+    const selected = new Set(profile.interests || []);
+    interestInputs.forEach((input) => { input.checked = selected.has(input.value); });
+  }
+
+  function selectedInterests() {
+    return interestInputs.filter((input) => input.checked).map((input) => input.value).slice(0, 5);
+  }
+
+  function renderEventMeta() {
+    const meta = UI.qs('#joinEventMeta');
+    meta.replaceChildren();
+    const values = [];
+    if (state.event.date) values.push(`📅 ${UI.formatDate(state.event.date)}`);
+    if (state.event.location) values.push(`📍 ${state.event.location}`);
+    if (Number.isInteger(state.event.budgetCents)) values.push(`💶 Budget ${UI.formatBudget(state.event.budgetCents)}`);
+    values.forEach((value) => {
+      const chip = document.createElement('span');
+      chip.textContent = value;
+      meta.appendChild(chip);
+    });
+  }
+
+  function showResult(targetName, targetProfile = null, celebrate = false) {
     stopCamera();
     loading.hidden = true;
     profileView.hidden = true;
     resultView.hidden = false;
     UI.qs('#targetName').textContent = targetName || 'Mistero';
     UI.qs('#partyLink').href = state.event.publicPath;
+    renderTargetProfile(targetProfile);
     if (celebrate) {
       UI.confetti();
       UI.playBell();
@@ -61,13 +131,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   function renderState() {
     const participant = state.participant;
     UI.qs('#joinEventLabel').textContent = state.event.name.toUpperCase();
+    renderEventMeta();
     UI.qs('#participantName').textContent = participant.name;
     photoInitial.textContent = UI.initials(participant.name);
     wishInput.value = participant.wish || '';
     UI.qs('#wishCount').textContent = wishInput.value.length;
     syncMood(participant.mood);
+    syncGiftProfile(participant.giftProfile);
     if (participant.photoUrl) setPreview(participant.photoUrl);
-    if (participant.revealed) showResult(participant.targetName, false);
+    if (participant.revealed) showResult(participant.targetName, participant.targetProfile, false);
     else showProfile();
   }
 
@@ -151,6 +223,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   try {
     state = await UI.api(`/api/participant/${participantToken}`);
+    try {
+      const remembered = JSON.parse(localStorage.getItem('secret-santa-participant-tokens') || '[]');
+      localStorage.setItem('secret-santa-participant-tokens', JSON.stringify([...new Set([...remembered, participantToken])].slice(-20)));
+    } catch (_error) {}
     renderState();
   } catch (error) {
     loading.innerHTML = '';
@@ -171,6 +247,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   wishInput.addEventListener('input', () => {
     UI.qs('#wishCount').textContent = wishInput.value.length;
+  });
+
+  avoidInput.addEventListener('input', () => {
+    UI.qs('#avoidCount').textContent = avoidInput.value.length;
+  });
+
+  interestInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+      const selected = selectedInterests();
+      if (input.checked && selected.length >= 5) {
+        const checked = interestInputs.filter((item) => item.checked);
+        if (checked.length > 5) {
+          input.checked = false;
+          UI.toast('Puoi scegliere al massimo 5 passioni.', 'error');
+        }
+      }
+    });
   });
 
   photoInput.addEventListener('change', async () => {
@@ -254,15 +347,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (selectedPhoto) data.append('photo', selectedPhoto);
       data.append('wish', wishInput.value);
       data.append('mood', selectedMood);
+      data.append('favoriteColor', favoriteColor.value);
+      data.append('giftStyle', giftStyle.value);
+      data.append('interests', JSON.stringify(selectedInterests()));
+      data.append('avoid', avoidInput.value);
       const profile = await UI.api(`/api/participant/${participantToken}/profile`, { method: 'POST', body: data });
       state.participant.photoUrl = profile.photoUrl;
       state.participant.wish = wishInput.value;
       state.participant.mood = selectedMood;
+      state.participant.giftProfile = profile.giftProfile;
       selectedPhoto = null;
       const reveal = await UI.api(`/api/participant/${participantToken}/reveal`, { method: 'POST' });
       state.participant.revealed = true;
       state.participant.targetName = reveal.targetName;
-      showResult(reveal.targetName, true);
+      state.participant.targetProfile = reveal.targetProfile;
+      showResult(reveal.targetName, reveal.targetProfile, true);
     } catch (error) {
       UI.toast(error.message, 'error');
     } finally {

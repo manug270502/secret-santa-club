@@ -35,6 +35,7 @@ async function createParty(api) {
       organizerParticipates: false,
       date: '2026-12-20',
       location: 'Casa',
+      budget: '25,50',
       requirePhones: true,
       participants: [
         { name: 'Anna', phone: '+39 333 1111111' },
@@ -54,7 +55,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const { dataStore, api, media } = setup();
   const health = await call(api, '/health');
   assert.equal(health.response.status, 200);
-  assert.equal(health.payload.service, 'secret-santa-club-netlify-v4');
+  assert.equal(health.payload.service, 'secret-santa-club-netlify-v5');
   assert.equal(health.payload.storage, 'netlify-blobs');
 
   const creation = await createParty(api);
@@ -73,7 +74,9 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
 
   const eventKey = dataStore.keys().find((key) => key.startsWith('event/'));
   const storedEvent = dataStore.raw(eventKey);
-  assert.equal(storedEvent.schemaVersion, 4);
+  assert.equal(storedEvent.schemaVersion, 5);
+  assert.equal(storedEvent.budgetCents, 2550);
+  storedEvent.participants.forEach((participant) => assert.match(participant.recoveryCode, /^[A-HJ-NP-Z2-9]{8}$/));
   const ids = new Set(storedEvent.participants.map((participant) => participant.id));
   const assignments = new Set(storedEvent.participants.map((participant) => participant.assignedId));
   assert.deepEqual(assignments, ids);
@@ -96,10 +99,20 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const form = new FormData();
   form.append('wish', 'Un libro e del buon caffe');
   form.append('mood', '🎁');
+  form.append('favoriteColor', 'blu');
+  form.append('giftStyle', 'utile');
+  form.append('interests', JSON.stringify(['libri', 'tecnologia']));
+  form.append('avoid', 'Profumi troppo forti');
   form.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00])], { type: 'image/jpeg' }), 'foto.jpg');
   const profile = await call(api, `/api/participant/${participantToken}/profile`, { method: 'POST', body: form });
   assert.equal(profile.response.status, 200);
   assert.match(profile.payload.photoUrl, /^\/media\/[A-Za-z0-9_-]+$/);
+  assert.deepEqual(profile.payload.giftProfile, {
+    favoriteColor: 'blu',
+    interests: ['libri', 'tecnologia'],
+    giftStyle: 'utile',
+    avoid: 'Profumi troppo forti',
+  });
 
   const image = await call(media, profile.payload.photoUrl);
   assert.equal(image.response.status, 200);
@@ -124,6 +137,8 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const publicAfter = await call(api, `/api/public/${publicToken}`);
   assert.equal(publicAfter.payload.event.revealedCount, 1);
   assert.equal(publicAfter.payload.event.messages.length, 1);
+  assert.equal(publicAfter.payload.event.budgetCents, 2550);
+  assert.equal(publicAfter.payload.event.participants[0].giftProfile.favoriteColor, 'blu');
 });
 
 test('scritture concorrenti non perdono i messaggi grazie agli ETag', async () => {
@@ -186,7 +201,9 @@ test('configurazione statica usa Netlify e non contiene invio WhatsApp automatic
   const legacyStub = fs.readFileSync(path.join(ROOT, 'src/twilio-whatsapp.mjs'), 'utf8');
   assert.doesNotMatch(legacyStub, /api\.twilio\.com|sendInvite|getMessageStatus/);
 
-  for (const file of ['index.html', 'admin.html', 'participant.html', 'dashboard.html']) {
+  assert.match(toml, /from = "\/my-events"/);
+
+  for (const file of ['index.html', 'admin.html', 'my-events.html', 'participant.html', 'dashboard.html']) {
     assert.equal(fs.existsSync(path.join(ROOT, 'public', file)), true, `${file} deve esistere`);
   }
 });
@@ -369,4 +386,233 @@ test('gli override responsive coprono form, admin, partecipante e dashboard mobi
   assert.match(css, /\.join-card \{\s*border-radius: 24px/s);
   assert.match(css, /\.people-grid \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
   assert.match(css, /font-size: 16px/);
+  assert.match(css, /input\[type="date"\][^{]*\{[^}]*min-width: 0[^}]*max-width: 100%/s);
+  assert.match(css, /-webkit-appearance: none/);
+  assert.match(css, /\.gift-profile-rail/);
+  assert.match(css, /scroll-snap-type: x mandatory/);
+});
+
+
+test('recupero inviti per numero: elenco protetto, codice elfo e nome coperto', async () => {
+  const { api } = setup();
+  const creation = await createParty(api);
+  const adminToken = tokenFrom(creation.payload.adminPath);
+  const admin = await call(api, `/api/admin/${adminToken}`);
+  const anna = admin.payload.event.participants.find((participant) => participant.name === 'Anna');
+  assert.ok(anna);
+  assert.match(anna.recoveryCode, /^[A-HJ-NP-Z2-9]{8}$/);
+
+  const lookup = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '333 1111111' }),
+  });
+  assert.equal(lookup.response.status, 200);
+  assert.equal(lookup.payload.rooms.length, 1);
+  assert.equal(lookup.payload.rooms[0].name, 'Natale Test');
+  assert.equal(lookup.payload.rooms[0].participantName, 'Anna');
+  assert.equal(lookup.payload.rooms[0].budgetCents, 2550);
+  const publicLookup = JSON.stringify(lookup.payload);
+  assert.equal(publicLookup.includes('recoveryCode'), false);
+  assert.equal(publicLookup.includes('participantPath'), false);
+  assert.equal(publicLookup.includes('targetName'), false);
+  assert.equal(publicLookup.includes('+393331111111'), false);
+
+  const wrong = await call(api, '/api/recovery/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phone: '+39 333 1111111',
+      eventId: lookup.payload.rooms[0].eventId,
+      recoveryCode: 'AAAAAAAA',
+    }),
+  });
+  assert.equal(wrong.response.status, 403);
+
+  const unlockedBeforeReveal = await call(api, '/api/recovery/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phone: '+39 333 1111111',
+      eventId: lookup.payload.rooms[0].eventId,
+      recoveryCode: anna.recoveryCode.toLowerCase(),
+    }),
+  });
+  assert.equal(unlockedBeforeReveal.response.status, 200);
+  assert.equal(unlockedBeforeReveal.payload.room.targetName, null);
+  assert.equal(unlockedBeforeReveal.payload.room.revealed, false);
+  assert.match(unlockedBeforeReveal.payload.room.participantPath, /^\/join\//);
+  assert.match(unlockedBeforeReveal.payload.room.publicPath, /^\/party\//);
+
+  const profile = new FormData();
+  profile.append('wish', 'Un romanzo giallo');
+  profile.append('mood', '🎄');
+  profile.append('favoriteColor', 'verde');
+  profile.append('giftStyle', 'sorpresa');
+  profile.append('interests', JSON.stringify(['libri', 'viaggi']));
+  profile.append('avoid', 'Niente tazze');
+  profile.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00])], { type: 'image/jpeg' }), 'anna.jpg');
+  assert.equal((await call(api, `/api/participant/${tokenFrom(anna.path)}/profile`, { method: 'POST', body: profile })).response.status, 200);
+  const reveal = await call(api, `/api/participant/${tokenFrom(anna.path)}/reveal`, { method: 'POST' });
+  assert.equal(reveal.response.status, 200);
+
+  const unlockedAfterReveal = await call(api, '/api/recovery/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phone: '+39 333 1111111',
+      eventId: lookup.payload.rooms[0].eventId,
+      recoveryCode: anna.recoveryCode,
+    }),
+  });
+  assert.equal(unlockedAfterReveal.response.status, 200);
+  assert.equal(unlockedAfterReveal.payload.room.targetName, reveal.payload.targetName);
+  assert.equal(unlockedAfterReveal.payload.room.revealed, true);
+
+  const empty = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 333 9999999' }),
+  });
+  assert.equal(empty.response.status, 200);
+  assert.deepEqual(empty.payload.rooms, []);
+});
+
+test('lo stesso numero ritrova più feste e il cambio numero aggiorna l’indice', async () => {
+  const { api } = setup();
+  const first = await createParty(api);
+  const second = await call(api, '/api/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Capodanno degli Elfi',
+      organizerParticipates: false,
+      date: '2026-12-31',
+      requirePhones: true,
+      participants: [
+        { name: 'Anna', phone: '+39 333 1111111' },
+        { name: 'Elena', phone: '+39 333 5555555' },
+        { name: 'Fabio', phone: '+39 333 6666666' },
+      ],
+    }),
+  });
+  assert.equal(second.response.status, 201);
+
+  let lookup = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 333 1111111' }),
+  });
+  assert.equal(lookup.payload.rooms.length, 2);
+  assert.deepEqual(new Set(lookup.payload.rooms.map((room) => room.name)), new Set(['Natale Test', 'Capodanno degli Elfi']));
+
+  const adminToken = tokenFrom(first.payload.adminPath);
+  const admin = await call(api, `/api/admin/${adminToken}`);
+  const anna = admin.payload.event.participants.find((participant) => participant.name === 'Anna');
+  const changed = await call(api, `/api/admin/${adminToken}/participants/${anna.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 347 1010101' }),
+  });
+  assert.equal(changed.response.status, 200);
+
+  lookup = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 333 1111111' }),
+  });
+  assert.equal(lookup.payload.rooms.length, 1);
+  assert.equal(lookup.payload.rooms[0].name, 'Capodanno degli Elfi');
+
+  const newLookup = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 347 1010101' }),
+  });
+  assert.equal(newLookup.payload.rooms.length, 1);
+  assert.equal(newLookup.payload.rooms[0].name, 'Natale Test');
+});
+
+test('budget e profili regalo sono validati, normalizzati e pubblicati senza dati privati', async () => {
+  const { api } = setup();
+  const creation = await createParty(api);
+  const adminToken = tokenFrom(creation.payload.adminPath);
+  const publicToken = tokenFrom(creation.payload.publicPath);
+  const admin = await call(api, `/api/admin/${adminToken}`);
+  assert.equal(admin.payload.event.budgetCents, 2550);
+  const anna = admin.payload.event.participants.find((participant) => participant.name === 'Anna');
+
+  const form = new FormData();
+  form.append('wish', 'Qualcosa per viaggiare');
+  form.append('mood', '✨');
+  form.append('favoriteColor', 'BLU');
+  form.append('giftStyle', 'esperienza');
+  form.append('interests', JSON.stringify(['viaggi', 'libri', 'viaggi', 'invalid', 'musica', 'sport', 'natura', 'gaming']));
+  form.append('avoid', 'Oggetti molto ingombranti');
+  const saved = await call(api, `/api/participant/${tokenFrom(anna.path)}/profile`, { method: 'POST', body: form });
+  assert.equal(saved.response.status, 200);
+  assert.deepEqual(saved.payload.giftProfile, {
+    favoriteColor: 'blu',
+    interests: ['viaggi', 'libri', 'musica', 'sport', 'natura'],
+    giftStyle: 'esperienza',
+    avoid: 'Oggetti molto ingombranti',
+  });
+
+  const party = await call(api, `/api/public/${publicToken}`);
+  const annaPublic = party.payload.event.participants.find((participant) => participant.name === 'Anna');
+  assert.deepEqual(annaPublic.giftProfile, saved.payload.giftProfile);
+  const serialized = JSON.stringify(party.payload);
+  assert.equal(serialized.includes('recoveryCode'), false);
+  assert.equal(serialized.includes('participantPath'), false);
+  assert.equal(serialized.includes('+393331111111'), false);
+
+  const invalidBudget = await call(api, `/api/admin/${adminToken}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ budget: '-1' }),
+  });
+  assert.equal(invalidBudget.response.status, 400);
+
+  const cleared = await call(api, `/api/admin/${adminToken}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ budget: '' }),
+  });
+  assert.equal(cleared.response.status, 200);
+  const afterClear = await call(api, `/api/admin/${adminToken}`);
+  assert.equal(afterClear.payload.event.budgetCents, null);
+});
+
+test('un evento v4 viene migrato in modo compatibile quando l’admin lo riapre', async () => {
+  const { api, dataStore } = setup();
+  const creation = await createParty(api);
+  const adminToken = tokenFrom(creation.payload.adminPath);
+  const eventKey = dataStore.keys().find((key) => key.startsWith('event/'));
+  const entry = await dataStore.getWithMetadata(eventKey, { type: 'json' });
+  const legacy = entry.data;
+  legacy.schemaVersion = 4;
+  delete legacy.budgetCents;
+  legacy.participants.forEach((participant) => {
+    delete participant.recoveryCode;
+    delete participant.giftProfile;
+  });
+  await dataStore.setJSON(eventKey, legacy, { onlyIfMatch: entry.etag, metadata: { type: 'event' } });
+  for (const key of dataStore.keys().filter((key) => key.startsWith('index/phone/'))) await dataStore.delete(key);
+
+  const migrated = await call(api, `/api/admin/${adminToken}`);
+  assert.equal(migrated.response.status, 200);
+  assert.equal(migrated.payload.event.budgetCents, null);
+  migrated.payload.event.participants.forEach((participant) => {
+    assert.match(participant.recoveryCode, /^[A-HJ-NP-Z2-9]{8}$/);
+    assert.deepEqual(participant.giftProfile, { favoriteColor: '', interests: [], giftStyle: '', avoid: '' });
+  });
+  const stored = dataStore.raw(eventKey);
+  assert.equal(stored.schemaVersion, 5);
+
+  const lookup = await call(api, '/api/recovery/lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '+39 333 1111111' }),
+  });
+  assert.equal(lookup.payload.rooms.length, 1);
 });

@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bits = [organizerText];
     if (event.date) bits.push(UI.formatDate(event.date));
     if (event.location) bits.push(event.location);
+    if (Number.isInteger(event.budgetCents)) bits.push(`Budget ${UI.formatBudget(event.budgetCents)}`);
     UI.qs('#eventMeta').textContent = bits.join(' · ');
 
     const total = event.participants.length;
@@ -59,8 +60,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function inviteText(participant, link) {
     const dateText = state.event.date ? ` il ${UI.formatDate(state.event.date)}` : '';
-    const locationText = state.event.location ? `\n📍 ${state.event.location}` : '';
-    return `🎅 Ciao ${participant.name}!\n\nSei invitato/a a “${state.event.name}”${dateText}.${locationText}\n\n🎁 Apri il tuo link personale:\n${link}\n\n📸 Carica o scatta una foto e scopri a chi dovrai fare il regalo.\n\n🔒 Il link è personale: non inoltrarlo. Buon Secret Santa! 🎄`;
+    const locationText = state.event.location ? `
+📍 ${state.event.location}` : '';
+    const budgetText = Number.isInteger(state.event.budgetCents) ? `
+💶 Budget: ${UI.formatBudget(state.event.budgetCents)}` : '';
+    const recoveryUrl = `${cleanBase(state.base)}/my-events`;
+    return `🎅 Ciao ${participant.name}!
+
+Sei invitato/a a “${state.event.name}”${dateText}.${locationText}${budgetText}
+
+🎁 Apri il tuo link personale:
+${link}
+
+🔑 Codice elfo: ${participant.recoveryCode}
+Se perdi il link, ritrovalo qui: ${recoveryUrl}
+
+📸 Aggiungi foto, passioni e preferenze regalo, poi scopri a chi dovrai fare il regalo.
+
+🔒 Link e codice sono personali: non inoltrarli. Buon Secret Santa! 🎄`;
   }
 
   function renderSharingStatus() {
@@ -188,14 +205,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         inviteState.className = 'invite-delivery-state idle';
         inviteState.textContent = 'Da invitare su WhatsApp';
       }
-      copy.append(nameLine, profileStatus, inviteState);
+      const recoveryState = document.createElement('small');
+      recoveryState.className = 'recovery-code-state';
+      recoveryState.textContent = `Codice elfo: ${participant.recoveryCode || 'da generare'}`;
+      copy.append(nameLine, profileStatus, inviteState, recoveryState);
       person.append(avatar, copy);
 
       const link = pathUrl(participant.path);
+      const linkStack = document.createElement('div');
+      linkStack.className = 'share-link-stack';
       const linkField = document.createElement('div');
       linkField.className = 'link-field';
       linkField.textContent = link;
       linkField.title = link;
+      const recoveryField = document.createElement('div');
+      recoveryField.className = 'recovery-field';
+      recoveryField.textContent = `🔑 ${participant.recoveryCode || '—'}`;
+      recoveryField.title = 'Codice personale per recuperare l’invito';
+      linkStack.append(linkField, recoveryField);
 
       const actions = document.createElement('div');
       actions.className = 'share-actions';
@@ -207,6 +234,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       copyButton.title = `Copia il link di ${participant.name}`;
       copyButton.addEventListener('click', () => UI.copyText(link, `Link di ${participant.name} copiato.`));
       actions.appendChild(copyButton);
+
+      const codeButton = document.createElement('button');
+      codeButton.type = 'button';
+      codeButton.className = 'icon-button recovery-copy-button';
+      codeButton.textContent = '🔑';
+      codeButton.title = `Copia il codice elfo di ${participant.name}`;
+      codeButton.addEventListener('click', () => UI.copyText(participant.recoveryCode, `Codice elfo di ${participant.name} copiato.`));
+      actions.appendChild(codeButton);
 
       const phoneButton = document.createElement('button');
       phoneButton.type = 'button';
@@ -264,7 +299,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       actions.appendChild(whatsAppButton);
 
-      row.append(person, linkField, actions);
+      row.append(person, linkStack, actions);
       participantList.appendChild(row);
     });
   }
@@ -374,7 +409,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   UI.qs('#copyAdminLink').addEventListener('click', () => UI.copyText(window.location.href, 'Link admin copiato: conservalo con cura.'));
   UI.qs('#copyAllButton').addEventListener('click', () => {
     const content = state.event.participants
-      .map((participant) => `${participant.name}: ${pathUrl(participant.path)}`)
+      .map((participant) => `${participant.name}: ${pathUrl(participant.path)} | Codice elfo: ${participant.recoveryCode}`)
       .join('\n');
     UI.copyText(content, 'Tutti i link personali sono stati copiati.');
   });
@@ -383,6 +418,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     editForm.elements.name.value = state.event.name;
     editForm.elements.organizer.value = state.event.organizer;
     editForm.elements.date.value = state.event.date || '';
+    editForm.elements.budget.value = Number.isInteger(state.event.budgetCents) ? (state.event.budgetCents / 100).toFixed(state.event.budgetCents % 100 ? 2 : 0) : '';
     editForm.elements.location.value = state.event.location || '';
     editModal.showModal();
   });
@@ -396,6 +432,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: editForm.elements.name.value,
           organizer: editForm.elements.organizer.value,
           date: editForm.elements.date.value,
+          budget: editForm.elements.budget.value,
           location: editForm.elements.location.value,
         },
       });

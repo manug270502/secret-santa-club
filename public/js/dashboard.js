@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const app = UI.qs('#dashboardApp');
   const loading = UI.qs('#dashboardLoading');
   const peopleGrid = UI.qs('#peopleGrid');
+  const giftProfileRail = UI.qs('#giftProfileRail');
   const messageWall = UI.qs('#messageWall');
   const wallForm = UI.qs('#wallForm');
   let eventData = null;
@@ -47,6 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bits = [`Organizzato da ${eventData.organizer}`];
     if (eventData.date) bits.push(UI.formatDate(eventData.date));
     if (eventData.location) bits.push(eventData.location);
+    if (Number.isInteger(eventData.budgetCents)) bits.push(`Budget ${UI.formatBudget(eventData.budgetCents)}`);
     UI.qs('#partyMeta').textContent = bits.join(' · ');
 
     const percent = eventData.participantCount
@@ -88,6 +90,71 @@ document.addEventListener('DOMContentLoaded', async () => {
         card.appendChild(wish);
       }
       peopleGrid.appendChild(card);
+    });
+  }
+
+  function appendGiftDetail(container, label, value, className = '') {
+    if (!value) return;
+    const row = document.createElement('div');
+    row.className = `gift-detail ${className}`.trim();
+    const key = document.createElement('strong');
+    key.textContent = label;
+    const text = document.createElement('span');
+    text.textContent = value;
+    row.append(key, text);
+    container.appendChild(row);
+  }
+
+  function renderGiftProfiles() {
+    giftProfileRail.replaceChildren();
+    eventData.participants.forEach((participant) => {
+      const card = document.createElement('article');
+      card.className = 'gift-profile-card';
+      const top = document.createElement('div');
+      top.className = 'gift-profile-card-top';
+      const avatar = document.createElement('span');
+      UI.mountAvatar(avatar, participant, 'gift-profile-avatar');
+      const heading = document.createElement('div');
+      const name = document.createElement('h3');
+      name.textContent = participant.name;
+      const state = document.createElement('small');
+      state.textContent = UI.hasGiftProfile(participant.giftProfile) || participant.wish ? 'SCHEDA REGALO PRONTA' : 'ANCORA TUTTO DA SCOPRIRE';
+      heading.append(name, state);
+      const mood = document.createElement('span');
+      mood.className = 'gift-profile-mood';
+      mood.textContent = participant.mood || '🎄';
+      top.append(avatar, heading, mood);
+
+      const details = document.createElement('div');
+      details.className = 'gift-profile-details';
+      const profile = participant.giftProfile || {};
+      appendGiftDetail(details, '🎨 Colore', UI.giftLabel('colors', profile.favoriteColor));
+      appendGiftDetail(details, '🎁 Preferisce', UI.giftLabel('styles', profile.giftStyle));
+      if (profile.interests?.length) {
+        const chips = document.createElement('div');
+        chips.className = 'gift-interest-chips';
+        profile.interests.forEach((interest) => {
+          const chip = document.createElement('span');
+          chip.textContent = UI.giftLabel('interests', interest);
+          chips.appendChild(chip);
+        });
+        const interestRow = document.createElement('div');
+        interestRow.className = 'gift-detail gift-detail-interests';
+        const key = document.createElement('strong');
+        key.textContent = '✨ Passioni';
+        interestRow.append(key, chips);
+        details.appendChild(interestRow);
+      }
+      appendGiftDetail(details, '💭 Indizio', participant.wish, 'gift-detail-wish');
+      appendGiftDetail(details, '🚫 Da evitare', profile.avoid, 'gift-detail-avoid');
+      if (!details.children.length) {
+        const empty = document.createElement('p');
+        empty.className = 'gift-profile-empty';
+        empty.textContent = 'Nessun indizio ancora. Potrebbe amare le sorprese… o essersi dimenticato di compilare la scheda.';
+        details.appendChild(empty);
+      }
+      card.append(top, details);
+      giftProfileRail.appendChild(card);
     });
   }
 
@@ -143,6 +210,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function renderAll() {
     renderHeader();
     renderPeople();
+    renderGiftProfiles();
     renderMessages();
     updateCountdown();
   }

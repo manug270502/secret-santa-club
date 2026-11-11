@@ -118,7 +118,8 @@
       <label class="field"><span>Nome admin visualizzato</span><input name="organizer" maxlength="60" required></label>
       <div class="form-grid two-columns">
         <label class="field"><span>Data</span><input name="date" type="date"></label>
-        <label class="field"><span>Luogo</span><input name="location" maxlength="100"></label>
+        <label class="field"><span>Budget per regalo</span><div class="money-input"><span aria-hidden="true">€</span><input name="budget" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></div></label>
+        <label class="field field-wide"><span>Luogo</span><input name="location" maxlength="100"></label>
       </div>
       <button class="button button-primary button-full" value="default" type="submit">Salva modifiche</button>
     </form>

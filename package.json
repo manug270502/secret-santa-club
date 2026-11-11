@@ -1,9 +1,9 @@
 {
   "name": "secret-santa-club-netlify",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
-  "description": "Secret Santa natalizio per Netlify con UI mobile, admin partecipante opzionale e inviti WhatsApp click-to-chat gratuiti.",
+  "description": "Secret Santa per Netlify con budget, recupero inviti protetto, profili regalo, dashboard comune e WhatsApp click-to-chat gratuito.",
   "scripts": {
     "dev": "node server-local.mjs",
     "start": "node server-local.mjs",

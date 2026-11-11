@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const demoButton = qs('#demoButton');
   const organizerToggle = qs('#organizerParticipates');
   const organizerFields = qs('#organizerParticipantFields');
+  const recoverForm = qs('#recoverPhoneForm');
   let participants = [];
 
   const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
@@ -149,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         organizerName: organizerToggle.checked ? form.elements.organizerName.value : '',
         organizerPhone: organizerToggle.checked ? form.elements.organizerPhone.value : '',
         date: form.elements.date.value,
+        budget: form.elements.budget.value,
         location: form.elements.location.value,
         requirePhones: true,
         participants: validParticipants,
@@ -160,6 +162,17 @@ document.addEventListener('DOMContentLoaded', () => {
       createButton.disabled = false;
       createButton.querySelector('span').textContent = 'Sorteggia e crea gli inviti';
     }
+  });
+
+  recoverForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!recoverForm.checkValidity()) {
+      recoverForm.reportValidity();
+      return;
+    }
+    const phone = recoverForm.elements.phone.value.trim();
+    sessionStorage.setItem('secret-santa-recovery-phone', phone);
+    window.location.assign('/my-events');
   });
 
   demoButton.addEventListener('click', async () => {

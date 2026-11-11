@@ -8,8 +8,63 @@ export class HttpError extends Error {
   }
 }
 
+const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export const GIFT_COLOR_OPTIONS = new Set([
+  'rosso',
+  'verde',
+  'blu',
+  'nero',
+  'bianco',
+  'rosa',
+  'viola',
+  'giallo-arancione',
+  'multicolore',
+  'nessuna-preferenza',
+]);
+
+export const GIFT_INTEREST_OPTIONS = new Set([
+  'tecnologia',
+  'sport',
+  'musica',
+  'cinema-serie',
+  'libri',
+  'cucina',
+  'viaggi',
+  'gaming',
+  'arte-creativita',
+  'benessere',
+  'natura',
+  'moda',
+  'collezionismo',
+]);
+
+export const GIFT_STYLE_OPTIONS = new Set([
+  'utile',
+  'divertente',
+  'esperienza',
+  'goloso',
+  'creativo',
+  'sorpresa',
+]);
+
 export function token(bytes = 18) {
   return crypto.randomBytes(bytes).toString('base64url');
+}
+
+export function recoveryCode(length = 8) {
+  let value = '';
+  for (let index = 0; index < length; index += 1) {
+    value += RECOVERY_ALPHABET[crypto.randomInt(0, RECOVERY_ALPHABET.length)];
+  }
+  return value;
+}
+
+export function cleanRecoveryCode(value) {
+  return String(value ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 16);
 }
 
 export function cleanText(value, maxLength = 100) {
@@ -38,9 +93,47 @@ export function normalizeE164(value, defaultCountryCode = '39') {
   return /^\d{8,15}$/.test(digits) ? `+${digits}` : '';
 }
 
+export function phoneIndexToken(phone) {
+  const normalized = normalizeE164(phone);
+  if (!normalized) return '';
+  return crypto.createHash('sha256').update(normalized).digest('base64url').slice(0, 32);
+}
+
 export function validateDate(value) {
   const date = cleanText(value, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+}
+
+export function parseBudgetCents(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const normalized = String(value).trim().replace(',', '.');
+  if (!/^\d{1,6}(?:\.\d{1,2})?$/.test(normalized)) {
+    throw new HttpError(400, 'Inserisci un budget valido, ad esempio 25 o 25,50.');
+  }
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 100000) {
+    throw new HttpError(400, 'Il budget deve essere compreso tra 0 e 100.000 euro.');
+  }
+  return Math.round(amount * 100);
+}
+
+export function normalizeGiftProfile(value = {}) {
+  const favoriteColor = cleanText(value?.favoriteColor, 40).toLowerCase();
+  const giftStyle = cleanText(value?.giftStyle, 40).toLowerCase();
+  const interests = Array.isArray(value?.interests)
+    ? value.interests
+    : String(value?.interests ?? '').split(',');
+  const normalizedInterests = [...new Set(interests
+    .map((item) => cleanText(item, 40).toLowerCase())
+    .filter((item) => GIFT_INTEREST_OPTIONS.has(item)))]
+    .slice(0, 5);
+
+  return {
+    favoriteColor: GIFT_COLOR_OPTIONS.has(favoriteColor) ? favoriteColor : '',
+    interests: normalizedInterests,
+    giftStyle: GIFT_STYLE_OPTIONS.has(giftStyle) ? giftStyle : '',
+    avoid: cleanText(value?.avoid, 140),
+  };
 }
 
 export function assignSingleCycle(participants) {
@@ -96,6 +189,7 @@ export function buildEvent(payload) {
   const organizerPhone = cleanPhone(payload?.organizerPhone);
   const date = validateDate(payload?.date);
   const location = cleanText(payload?.location, 100);
+  const budgetCents = parseBudgetCents(payload?.budget);
   const sourceParticipants = Array.isArray(payload?.participants) ? payload.participants : [];
   const requirePhones = payload?.requirePhones === true;
 
@@ -127,11 +221,13 @@ export function buildEvent(payload) {
       phone: participantPhone,
       isOrganizer: Boolean(item.isOrganizer),
       token: token(24),
+      recoveryCode: recoveryCode(),
       assignedId: null,
       photoUrl: '',
       photoToken: '',
       wish: '',
       mood: '🎄',
+      giftProfile: normalizeGiftProfile(),
       revealedAt: null,
       profileUpdatedAt: null,
       invite: newInviteState(),
@@ -142,7 +238,7 @@ export function buildEvent(payload) {
   const now = new Date().toISOString();
   const organizerParticipant = participants.find((participant) => participant.isOrganizer);
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: token(10),
     name,
     organizer: organizerParticipates ? organizerName : organizerName || 'Admin della festa',
@@ -150,6 +246,7 @@ export function buildEvent(payload) {
     organizerParticipantId: organizerParticipant?.id || '',
     date,
     location,
+    budgetCents,
     createdAt: now,
     updatedAt: now,
     adminToken: token(24),

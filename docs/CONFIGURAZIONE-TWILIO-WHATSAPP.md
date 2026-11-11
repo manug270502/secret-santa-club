@@ -1,7 +1,7 @@
-# Integrazione automatica rimossa
+# Twilio non e necessario
 
-Questo file rimane soltanto per sovrascrivere la vecchia guida durante l'aggiornamento del repository.
+Secret Santa Club v5 non usa Twilio, WhatsApp Business Platform o altri provider a pagamento.
 
-La versione 4 non usa provider WhatsApp, credenziali, template o invii automatici. Gli inviti funzionano gratuitamente tramite click-to-chat: la regia apre la chat con testo e link pronti e l'admin preme **Invia** dentro WhatsApp.
+Gli inviti funzionano tramite click-to-chat: la cabina admin apre il normale WhatsApp con destinatario, messaggio, link personale e codice elfo gia compilati. L'admin preme soltanto **Invia**.
 
-Le eventuali variabili ambiente `TWILIO_*` presenti su Netlify non vengono lette dal codice e possono essere eliminate dalla configurazione del progetto.
+Le eventuali variabili ambiente `TWILIO_*` non vengono lette dal codice e possono essere rimosse dal progetto Netlify.

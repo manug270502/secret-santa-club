@@ -668,6 +668,13 @@ export function createApiHandler({
           });
         }
 
+        match = /^\/api\/super-admin\/events\/([^/]+)\/diagnostics$/.exec(pathname);
+        if (match && method === 'GET') {
+          const eventId = assertOpaqueToken(match[1], 'Evento');
+          const diagnostics = await repository.diagnoseEvent(eventId);
+          return jsonResponse(200, { ok: true, diagnostics });
+        }
+
         match = /^\/api\/super-admin\/events\/([^/]+)\/purge$/.exec(pathname);
         if (match && method === 'DELETE') {
           const eventId = assertOpaqueToken(match[1], 'Evento');
@@ -675,16 +682,17 @@ export function createApiHandler({
           const event = await repository.getEventById(eventId, { consistency: 'strong' });
           if (!event) throw new HttpError(404, 'Evento non trovato.');
           if (roomState(event) !== 'trashed') throw new HttpError(409, 'Sposta prima la stanza nel cestino.');
-          if (cleanText(body.confirmName, 120) !== event.name) {
-            throw new HttpError(400, 'Per confermare, digita esattamente il nome della stanza.');
+          const expectedPhrase = `ELIMINA ${event.name}`;
+          if (cleanText(body.confirmId, 120) !== event.id || cleanText(body.confirmPhrase, 180) !== expectedPhrase) {
+            throw new HttpError(400, `Conferma non valida. Digita esattamente: ${expectedPhrase}`);
           }
           const deleted = await repository.purgeEvent(eventId);
           await repository.appendAudit({
             action: 'event_purged',
             actor: session.sub,
             eventId,
-            eventName: deleted.name,
-            detail: 'Eliminazione definitiva di evento, indici e foto.',
+            eventName: deleted.event.name,
+            detail: `Eliminazione definitiva dopo backup ${deleted.backup.key}.`,
           });
           return jsonResponse(200, { ok: true });
         }

@@ -535,6 +535,27 @@ document.addEventListener('DOMContentLoaded', () => {
       renderRoom(result.event);
       roomDialog.showModal();
     } catch (error) {
+      if (error.status === 404) {
+        try {
+          const result = await request(`/api/super-admin/events/${roomId}/diagnostics`);
+          const d = result.diagnostics;
+          window.alert([
+            'Stanza orfana rilevata: il record principale non è disponibile.',
+            `ID: ${roomId}`,
+            `Catalogo: ${d.catalog ? 'PRESENTE' : 'MANCANTE'}`,
+            `Indici residui: ${d.indexKeys.length}`,
+            `Foto residue rilevate: ${d.mediaKeys.length}`,
+            `Audit collegati: ${d.audit.length}`,
+            `Backup purge: ${d.recoverableFromBackup.length}`,
+            '',
+            'Non viene modificato alcun dato.',
+          ].join('\n'));
+          return;
+        } catch (diagnosticError) {
+          UI.toast(`Evento non trovato; diagnostica fallita: ${diagnosticError.message}`, 'error');
+          return;
+        }
+      }
       if (error.status !== 401) UI.toast(error.message, 'error');
     }
   }
@@ -778,19 +799,47 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   UI.qs('#purgeRoom').addEventListener('click', async (event) => {
-    const name = window.prompt(`Eliminazione definitiva. Digita esattamente “${state.currentRoom.name}” per confermare.`);
-    if (name === null) return;
+    const target = state.currentRoom ? { id: state.currentRoom.id, name: state.currentRoom.name, status: state.currentRoom.status } : null;
+    if (!target || target.status !== 'trashed') return UI.toast('Riapri la stanza dal cestino prima di eliminarla.', 'error');
+    const phrase = `ELIMINA ${target.name}`;
+    const typed = window.prompt(`ATTENZIONE: stai eliminando definitivamente “${target.name}”\nID: ${target.id}\n\nVerrà creato un backup di sicurezza. Digita esattamente:\n${phrase}`);
+    if (typed === null) return;
+    if (!state.currentRoom || state.currentRoom.id !== target.id || state.currentRoom.name !== target.name) {
+      return UI.toast('La stanza selezionata è cambiata. Eliminazione annullata.', 'error');
+    }
     const button = event.currentTarget;
-    setBusy(button, true, 'Elimino…');
+    setBusy(button, true, 'Backup e eliminazione…');
     try {
-      await request(`/api/super-admin/events/${state.currentRoom.id}/purge`, {
+      await request(`/api/super-admin/events/${target.id}/purge`, {
         method: 'DELETE',
-        body: { confirmName: name },
+        body: { confirmId: target.id, confirmPhrase: typed },
       });
       roomDialog.close();
       state.currentRoom = null;
       await loadOverview({ refreshCatalog: true, silent: true });
-      UI.toast('Stanza eliminata definitivamente.');
+      UI.toast('Stanza eliminata dopo la creazione del backup di sicurezza.');
+    } catch (error) { UI.toast(error.message, 'error'); }
+    finally { setBusy(button, false); }
+  });
+
+  UI.qs('#roomDiagnostics').addEventListener('click', async (event) => {
+    const target = state.currentRoom ? { id: state.currentRoom.id, name: state.currentRoom.name } : null;
+    if (!target) return;
+    const button = event.currentTarget;
+    setBusy(button, true, 'Analizzo…');
+    try {
+      const result = await request(`/api/super-admin/events/${target.id}/diagnostics`);
+      const d = result.diagnostics;
+      window.alert([
+        `Diagnostica: ${target.name}`,
+        `ID: ${target.id}`,
+        `Evento principale: ${d.eventPresent ? 'PRESENTE' : 'MANCANTE'}`,
+        `Catalogo: ${d.catalog ? 'PRESENTE' : 'MANCANTE'}`,
+        `Indici residui: ${d.indexKeys.length}`,
+        `Foto residue rilevate: ${d.mediaKeys.length}`,
+        `Audit collegati: ${d.audit.length}`,
+        `Backup purge: ${d.recoverableFromBackup.length}`,
+      ].join('\n'));
     } catch (error) { UI.toast(error.message, 'error'); }
     finally { setBusy(button, false); }
   });

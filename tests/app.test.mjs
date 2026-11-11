@@ -786,13 +786,13 @@ test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione d
   const wrongName = await call(api, `/api/super-admin/events/${eventId}/purge`, {
     method: 'DELETE',
     headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ confirmName: 'Nome sbagliato' }),
+    body: JSON.stringify({ confirmId: eventId, confirmPhrase: 'ELIMINA Nome sbagliato' }),
   });
   assert.equal(wrongName.response.status, 400);
   const purged = await call(api, `/api/super-admin/events/${eventId}/purge`, {
     method: 'DELETE',
     headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ confirmName: 'Natale Test' }),
+    body: JSON.stringify({ confirmId: eventId, confirmPhrase: 'ELIMINA Natale Test' }),
   });
   assert.equal(purged.response.status, 200);
   assert.equal((await call(api, `/api/admin/${adminToken}`)).response.status, 404);

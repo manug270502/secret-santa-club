@@ -21,6 +21,7 @@ const CATALOG_KEY = 'system/event-catalog-v1';
 const SETTINGS_KEY = 'system/settings-v1';
 const AUDIT_PREFIX = 'audit/';
 const LOGIN_PREFIX = 'security/login/';
+const BACKUP_PREFIX = 'backup/deleted/';
 
 function eventKey(eventId) {
   return `${EVENT_PREFIX}${eventId}`;
@@ -855,24 +856,76 @@ export class SecretSantaRepository {
     };
   }
 
+  async createPurgeBackup(event) {
+    const now = new Date().toISOString();
+    const key = `${BACKUP_PREFIX}${event.id}/${now.replace(/[:.]/g, '-')}-${token(6)}`;
+    const backup = { version: 1, createdAt: now, reason: 'pre-purge', event: clone(event) };
+    const write = await this.dataStore.setJSON(key, backup, {
+      onlyIfNew: true,
+      metadata: { type: 'event-backup', eventId: event.id, eventName: event.name, createdAt: now },
+    });
+    if (!write.modified) throw new HttpError(500, 'Backup di sicurezza non creato. Eliminazione annullata.');
+    const verify = await this.dataStore.get(key, { type: 'json', consistency: 'strong' });
+    if (!verify?.event || verify.event.id !== event.id || verify.event.name !== event.name) {
+      throw new HttpError(500, 'Backup di sicurezza non verificabile. Eliminazione annullata.');
+    }
+    return { key, createdAt: now };
+  }
+
+  async diagnoseEvent(eventId) {
+    const [event, catalog, dataListing, mediaListing, audit] = await Promise.all([
+      this.getEventById(eventId, { consistency: 'strong' }),
+      this.dataStore.get(CATALOG_KEY, { type: 'json', consistency: 'strong' }),
+      typeof this.dataStore.list === 'function' ? this.dataStore.list({ prefix: INDEX_PREFIX }) : { blobs: [] },
+      typeof this.mediaStore.list === 'function' ? this.mediaStore.list({}) : { blobs: [] },
+      this.listAudit({ limit: 200 }),
+    ]);
+    const indexHits = [];
+    for (const blob of dataListing?.blobs || []) {
+      const value = await this.dataStore.get(blob.key, { type: 'json', consistency: 'eventual' }).catch(() => null);
+      const text = JSON.stringify(value || {});
+      if (text.includes(eventId)) indexHits.push(blob.key);
+    }
+    const mediaHits = (mediaListing?.blobs || []).filter((blob) => blob?.metadata?.eventId === eventId).map((blob) => blob.key);
+    const auditHits = audit.filter((entry) => entry.eventId === eventId);
+    return {
+      eventId,
+      eventPresent: Boolean(event),
+      catalog: catalog?.entries?.[eventId] || null,
+      indexKeys: indexHits,
+      mediaKeys: mediaHits,
+      audit: auditHits,
+      recoverableFromBackup: await this.listPurgeBackups(eventId),
+    };
+  }
+
+  async listPurgeBackups(eventId) {
+    if (typeof this.dataStore.list !== 'function') return [];
+    const result = await this.dataStore.list({ prefix: `${BACKUP_PREFIX}${eventId}/` });
+    return (result?.blobs || []).map((blob) => ({ key: blob.key, metadata: blob.metadata || null }));
+  }
+
   async purgeEvent(eventId) {
     const event = await this.getEventById(eventId, { consistency: 'strong' });
     if (!event) return null;
-    await Promise.allSettled(event.participants.map((participant) => (
-      this.removePhoneIndexEntry(participant.phone, event.id, participant.id)
-    )));
-    await Promise.allSettled(event.participants.map((participant) => (
-      participant.photoToken ? this.deletePhoto(participant.photoToken) : Promise.resolve()
-    )));
+    const backup = await this.createPurgeBackup(event);
+    for (const participant of event.participants) {
+      await this.removePhoneIndexEntry(participant.phone, event.id, participant.id);
+    }
+    for (const participant of event.participants) {
+      if (participant.photoToken) await this.deletePhoto(participant.photoToken);
+    }
     const keys = [
       indexKey('admin', event.adminToken),
       indexKey('public', event.publicToken),
       ...event.participants.map((participant) => indexKey('participant', participant.token)),
       eventKey(event.id),
     ];
-    await Promise.allSettled(keys.map((key) => this.dataStore.delete(key)));
-    await this.removeCatalogEntry(event.id).catch(() => {});
-    return clone(event);
+    for (const key of keys) await this.dataStore.delete(key);
+    const verify = await this.getEventById(event.id, { consistency: 'strong' });
+    if (verify) throw new HttpError(500, 'Eliminazione non completata: il record principale esiste ancora.');
+    await this.removeCatalogEntry(event.id);
+    return { event: clone(event), backup };
   }
 
   async savePhoto({ bytes, mime, extension, participantId, eventId }) {

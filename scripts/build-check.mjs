@@ -84,7 +84,7 @@ for (const htmlName of ['index.html', 'admin.html', 'my-events.html', 'participa
     console.error(`Script inline non consentito dalla CSP trovato in public/${htmlName}.`);
     process.exit(1);
   }
-  if (!html.includes('/css/styles.css?v=6.0.0')) {
+  if (!html.includes('/css/styles.css?v=6.1.0')) {
     console.error(`Asset CSS non versionato in public/${htmlName}.`);
     process.exit(1);
   }

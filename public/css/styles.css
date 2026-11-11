@@ -643,7 +643,7 @@ p { color: var(--muted); }
   .share-actions .whatsapp-share-button { flex: 1; }
 }
 
-/* v3: organizer choice, Twilio automation and mobile sizing */
+/* v4: organizer choice, WhatsApp click-to-chat and mobile sizing */
 html, body { max-width: 100%; overflow-x: clip; }
 body, main, section, article, form, div { min-width: 0; }
 button, input, textarea, select { min-width: 0; }

@@ -8,17 +8,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const participantList = UI.qs('#participantShareList');
   const editModal = UI.qs('#editEventModal');
   const editForm = UI.qs('#editEventForm');
-  const sendAllButton = UI.qs('#sendAllInvites');
-  const refreshStatusesButton = UI.qs('#refreshInviteStatuses');
+  const openNextButton = UI.qs('#openNextInvite');
   let state = { event: null, system: null, base: window.location.origin };
 
   const cleanBase = (value) => String(value || '').trim().replace(/\/$/, '');
   const pathUrl = (path) => `${cleanBase(state.base)}${path}`;
-  const activeInviteStatuses = new Set(['accepted', 'scheduled', 'queued', 'sending', 'sent', 'delivered', 'read']);
-
-  function automationConfigured() {
-    return Boolean(state.system?.whatsappAutomation?.configured);
-  }
+  const inviteWasOpened = (participant) => participant.invite?.status === 'opened';
 
   function setLoadingError(message) {
     loading.innerHTML = '';
@@ -64,72 +59,85 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function inviteText(participant, link) {
     const dateText = state.event.date ? ` il ${UI.formatDate(state.event.date)}` : '';
-    return `🎅 Ciao ${participant.name}!\n\nSei invitato/a a “${state.event.name}”${dateText}.\n\n🎁 Apri il tuo link personale:\n${link}\n\n📸 Carica o scatta una foto e scopri a chi dovrai fare il regalo.\n\n🔒 Il link è personale: non inoltrarlo. Buon Secret Santa! 🎄`;
+    const locationText = state.event.location ? `\n📍 ${state.event.location}` : '';
+    return `🎅 Ciao ${participant.name}!\n\nSei invitato/a a “${state.event.name}”${dateText}.${locationText}\n\n🎁 Apri il tuo link personale:\n${link}\n\n📸 Carica o scatta una foto e scopri a chi dovrai fare il regalo.\n\n🔒 Il link è personale: non inoltrarlo. Buon Secret Santa! 🎄`;
   }
 
-  function inviteStatus(invite = {}) {
-    const map = {
-      not_sent: ['Da inviare', 'idle'],
-      accepted: ['Accettato da Twilio', 'pending'],
-      queued: ['In coda', 'pending'],
-      sending: ['In invio', 'pending'],
-      sent: ['Inviato', 'sent'],
-      delivered: ['Consegnato', 'delivered'],
-      read: ['Letto', 'read'],
-      failed: ['Invio fallito', 'failed'],
-      undelivered: ['Non consegnato', 'failed'],
-      canceled: ['Annullato', 'failed'],
-      scheduled: ['Programmato', 'pending'],
-    };
-    return map[invite.status] || map.not_sent;
-  }
-
-  function renderAutomationStatus() {
-    const box = UI.qs('#automationStatus');
-    const config = state.system?.whatsappAutomation || {};
-    box.className = 'automation-status';
+  function renderSharingStatus() {
+    const box = UI.qs('#sharingStatus');
+    const eligible = state.event.participants.filter((participant) => participant.phone);
+    const opened = eligible.filter(inviteWasOpened).length;
+    const pending = eligible.length - opened;
+    box.className = 'automation-status ready';
     box.replaceChildren();
+
     const icon = document.createElement('span');
     icon.className = 'automation-status-icon';
+    icon.textContent = pending ? '💬' : '✅';
     const body = document.createElement('div');
     const title = document.createElement('strong');
+    title.textContent = pending
+      ? `${opened}/${eligible.length} chat WhatsApp aperte`
+      : 'Tutte le chat sono state aperte';
     const text = document.createElement('p');
-
-    if (config.configured) {
-      box.classList.add('ready');
-      icon.textContent = '⚡';
-      title.textContent = 'Invio automatico Twilio attivo';
-      text.textContent = config.mode === 'template'
-        ? 'Gli inviti partono direttamente dal sito con il template WhatsApp configurato.'
-        : 'Modalità free-form di test attiva: usala solo con Sandbox o conversazioni già aperte.';
-    } else {
-      box.classList.add('warning');
-      icon.textContent = '⚙️';
-      title.textContent = 'Twilio non è ancora configurato';
-      const missing = Array.isArray(config.missing) && config.missing.length
-        ? ` Mancano: ${config.missing.join(', ')}.`
-        : '';
-      text.textContent = `Aggiungi le variabili ambiente su Netlify e pubblica un nuovo deploy.${missing} Nel frattempo resta disponibile l’apertura manuale di WhatsApp.`;
-    }
+    text.textContent = pending
+      ? 'Il sito prepara destinatario, testo e link. Dentro WhatsApp resta soltanto da premere Invia.'
+      : 'Controlla di avere premuto Invia in ogni chat: il sito non può leggere lo stato reale del messaggio.';
     body.append(title, text);
     box.append(icon, body);
-    sendAllButton.disabled = !config.configured;
-    refreshStatusesButton.disabled = !config.configured;
+
+    openNextButton.disabled = pending === 0;
+    openNextButton.textContent = pending ? `Apri il prossimo (${pending})` : 'Inviti completati';
   }
 
-  async function sendInvite(participant, force = false) {
-    const result = await UI.api(`/api/admin/${adminToken}/invites/${participant.id}/send`, {
-      method: 'POST',
-      body: { force },
-    });
-    participant.invite = result.invite;
-    return result.invite;
+  async function markInviteOpened(participant) {
+    const previous = participant.invite || {};
+    const now = new Date().toISOString();
+    participant.invite = {
+      status: 'opened',
+      openedAt: previous.openedAt || now,
+      updatedAt: now,
+      openCount: Number(previous.openCount || 0) + 1,
+    };
+    renderParticipants();
+    renderSharingStatus();
+    try {
+      const result = await UI.api(`/api/admin/${adminToken}/invites/${participant.id}/opened`, { method: 'POST' });
+      participant.invite = result.invite;
+      renderParticipants();
+      renderSharingStatus();
+    } catch (error) {
+      UI.toast(`WhatsApp è stato aperto, ma non sono riuscito a salvare la spunta: ${error.message}`, 'error');
+    }
   }
 
-  async function refreshInvite(participant) {
-    const result = await UI.api(`/api/admin/${adminToken}/invites/${participant.id}/refresh`, { method: 'POST' });
-    participant.invite = result.invite;
-    return result.invite;
+  async function resetInviteOpened(participant) {
+    try {
+      const result = await UI.api(`/api/admin/${adminToken}/invites/${participant.id}/reset`, { method: 'POST' });
+      participant.invite = result.invite;
+      renderParticipants();
+      renderSharingStatus();
+      UI.toast(`${participant.name} è di nuovo tra gli inviti da aprire.`);
+    } catch (error) {
+      UI.toast(error.message, 'error');
+    }
+  }
+
+  function launchWhatsApp(participant) {
+    if (!participant.phone) {
+      UI.toast(`Aggiungi prima il numero WhatsApp di ${participant.name}.`, 'error');
+      return;
+    }
+    const link = pathUrl(participant.path);
+    const launcher = document.createElement('a');
+    launcher.href = UI.whatsappUrl(participant.phone, inviteText(participant, link));
+    launcher.target = '_blank';
+    launcher.rel = 'noopener noreferrer';
+    launcher.hidden = true;
+    document.body.appendChild(launcher);
+    launcher.click();
+    launcher.remove();
+    window.setTimeout(() => markInviteOpened(participant), 0);
   }
 
   function renderParticipants() {
@@ -167,11 +175,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         profileStatus.className = 'status-waiting';
       }
 
-      const [inviteLabel, inviteClass] = inviteStatus(participant.invite);
       const inviteState = document.createElement('small');
-      inviteState.className = `invite-delivery-state ${inviteClass}`;
-      inviteState.textContent = participant.phone ? `WhatsApp: ${inviteLabel}` : 'Numero WhatsApp mancante';
-      if (participant.invite?.errorMessage) inviteState.title = participant.invite.errorMessage;
+      if (!participant.phone) {
+        inviteState.className = 'invite-delivery-state failed';
+        inviteState.textContent = 'Numero WhatsApp mancante';
+      } else if (inviteWasOpened(participant)) {
+        inviteState.className = 'invite-delivery-state delivered';
+        const when = participant.invite.openedAt ? ` · ${UI.relativeTime(participant.invite.openedAt)}` : '';
+        inviteState.textContent = `Chat WhatsApp aperta${when}`;
+        inviteState.title = 'Questa spunta indica che la chat è stata aperta, non che WhatsApp abbia confermato la consegna.';
+      } else {
+        inviteState.className = 'invite-delivery-state idle';
+        inviteState.textContent = 'Da invitare su WhatsApp';
+      }
       copy.append(nameLine, profileStatus, inviteState);
       person.append(avatar, copy);
 
@@ -183,6 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const actions = document.createElement('div');
       actions.className = 'share-actions';
+
       const copyButton = document.createElement('button');
       copyButton.type = 'button';
       copyButton.className = 'icon-button';
@@ -208,7 +225,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           participant.phone = result.phone;
           participant.invite = result.invite;
           renderParticipants();
-          UI.toast(`Numero di ${participant.name} aggiornato. L’invito è pronto per un nuovo invio.`);
+          renderSharingStatus();
+          UI.toast(`Numero di ${participant.name} aggiornato.`);
         } catch (error) {
           UI.toast(error.message, 'error');
           phoneButton.disabled = false;
@@ -216,68 +234,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       actions.appendChild(phoneButton);
 
-      if (automationConfigured()) {
-        if (participant.invite?.messageSid) {
-          const refreshButton = document.createElement('button');
-          refreshButton.type = 'button';
-          refreshButton.className = 'icon-button invite-refresh-button';
-          refreshButton.textContent = '↻';
-          refreshButton.title = `Aggiorna la consegna per ${participant.name}`;
-          refreshButton.addEventListener('click', async () => {
-            refreshButton.disabled = true;
-            try {
-              await refreshInvite(participant);
-              renderParticipants();
-              UI.toast(`Stato di ${participant.name} aggiornato.`);
-            } catch (error) {
-              UI.toast(error.message, 'error');
-            } finally {
-              refreshButton.disabled = false;
-            }
-          });
-          actions.appendChild(refreshButton);
-        }
-
-        const sendButton = document.createElement('button');
-        sendButton.type = 'button';
-        sendButton.className = 'button invite-send-button';
-        const sentBefore = activeInviteStatuses.has(participant.invite?.status);
-        const retryable = new Set(['failed', 'undelivered', 'canceled']).has(participant.invite?.status);
-        sendButton.textContent = sentBefore ? 'Reinvia' : retryable ? 'Riprova' : 'Invia ora';
-        sendButton.disabled = !participant.phone;
-        sendButton.title = participant.phone
-          ? `Invia automaticamente l’invito WhatsApp a ${participant.name}`
-          : 'Aggiungi prima un numero WhatsApp';
-        sendButton.addEventListener('click', async () => {
-          const force = activeInviteStatuses.has(participant.invite?.status);
-          if (force && !window.confirm(`Vuoi reinviare l’invito a ${participant.name}?`)) return;
-          sendButton.disabled = true;
-          const original = sendButton.textContent;
-          sendButton.textContent = 'Invio…';
-          try {
-            await sendInvite(participant, force);
-            renderParticipants();
-            UI.toast(`Invito di ${participant.name} affidato a Twilio.`);
-          } catch (error) {
-            await refreshData().catch(() => {});
-            UI.toast(error.message, 'error');
-            sendButton.disabled = false;
-            sendButton.textContent = original;
-          }
-        });
-        actions.appendChild(sendButton);
-      } else {
-        const whatsApp = document.createElement('a');
-        whatsApp.className = 'button whatsapp-share-button';
-        whatsApp.title = participant.phone
-          ? `Apri la chat WhatsApp di ${participant.name} con il messaggio già pronto`
-          : `Apri WhatsApp e scegli il destinatario per ${participant.name}`;
-        whatsApp.href = UI.whatsappUrl(participant.phone, inviteText(participant, link));
-        whatsApp.target = '_blank';
-        whatsApp.rel = 'noopener';
-        whatsApp.innerHTML = '<span>💬</span><b>Apri WhatsApp</b>';
-        actions.appendChild(whatsApp);
+      if (inviteWasOpened(participant)) {
+        const resetButton = document.createElement('button');
+        resetButton.type = 'button';
+        resetButton.className = 'icon-button invite-refresh-button';
+        resetButton.textContent = '↺';
+        resetButton.title = `Segna ${participant.name} come ancora da invitare`;
+        resetButton.addEventListener('click', () => resetInviteOpened(participant));
+        actions.appendChild(resetButton);
       }
+
+      const whatsAppButton = document.createElement('a');
+      whatsAppButton.className = `button whatsapp-share-button${inviteWasOpened(participant) ? ' opened' : ''}`;
+      whatsAppButton.href = participant.phone ? UI.whatsappUrl(participant.phone, inviteText(participant, link)) : '#';
+      whatsAppButton.target = '_blank';
+      whatsAppButton.rel = 'noopener noreferrer';
+      whatsAppButton.title = participant.phone
+        ? `Apri la chat WhatsApp di ${participant.name} con il messaggio già pronto`
+        : 'Aggiungi prima un numero WhatsApp';
+      whatsAppButton.setAttribute('aria-disabled', participant.phone ? 'false' : 'true');
+      whatsAppButton.innerHTML = `<span>💬</span><b>${inviteWasOpened(participant) ? 'Apri di nuovo' : 'Apri WhatsApp'}</b>`;
+      whatsAppButton.addEventListener('click', (event) => {
+        if (!participant.phone) {
+          event.preventDefault();
+          UI.toast(`Aggiungi prima il numero WhatsApp di ${participant.name}.`, 'error');
+          return;
+        }
+        window.setTimeout(() => markInviteOpened(participant), 0);
+      });
+      actions.appendChild(whatsAppButton);
 
       row.append(person, linkField, actions);
       participantList.appendChild(row);
@@ -329,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function render() {
     renderMeta();
-    renderAutomationStatus();
+    renderSharingStatus();
     renderParticipants();
     renderMessages();
   }
@@ -376,59 +361,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     UI.toast('Dominio dei link aggiornato.');
   });
 
-  sendAllButton.addEventListener('click', async () => {
-    const pending = state.event.participants.filter((participant) =>
-      participant.phone && !activeInviteStatuses.has(participant.invite?.status));
-    if (!pending.length) {
-      UI.toast('Non ci sono nuovi inviti da inviare. Usa “Reinvia” sulla singola persona se serve.');
+  openNextButton.addEventListener('click', () => {
+    const next = state.event.participants.find((participant) => participant.phone && !inviteWasOpened(participant));
+    if (!next) {
+      UI.toast('Hai già aperto tutte le chat. Controlla di avere premuto Invia in WhatsApp.');
       return;
     }
-    if (!window.confirm(`Inviare automaticamente ${pending.length} inviti WhatsApp tramite Twilio?`)) return;
-
-    sendAllButton.disabled = true;
-    refreshStatusesButton.disabled = true;
-    const original = sendAllButton.textContent;
-    let completed = 0;
-    let failed = 0;
-    for (const participant of pending) {
-      sendAllButton.textContent = `Invio ${completed + failed + 1}/${pending.length}…`;
-      try {
-        await sendInvite(participant, false);
-        completed += 1;
-      } catch (_error) {
-        failed += 1;
-      }
-      renderParticipants();
-    }
-    sendAllButton.textContent = original;
-    sendAllButton.disabled = !automationConfigured();
-    refreshStatusesButton.disabled = !automationConfigured();
-    if (failed) UI.toast(`${completed} inviti avviati, ${failed} non riusciti. Controlla le righe evidenziate.`, 'error');
-    else UI.toast(`${completed} inviti affidati a Twilio.`);
-    await refreshData().catch(() => {});
-  });
-
-  refreshStatusesButton.addEventListener('click', async () => {
-    const sent = state.event.participants.filter((participant) => participant.invite?.messageSid);
-    if (!sent.length) {
-      UI.toast('Non ci sono ancora inviti Twilio da controllare.');
-      return;
-    }
-    refreshStatusesButton.disabled = true;
-    const original = refreshStatusesButton.textContent;
-    let failures = 0;
-    for (let index = 0; index < sent.length; index += 1) {
-      refreshStatusesButton.textContent = `Controllo ${index + 1}/${sent.length}…`;
-      try {
-        await refreshInvite(sent[index]);
-      } catch (_error) {
-        failures += 1;
-      }
-      renderParticipants();
-    }
-    refreshStatusesButton.textContent = original;
-    refreshStatusesButton.disabled = !automationConfigured();
-    UI.toast(failures ? `Stati aggiornati, con ${failures} controlli non riusciti.` : 'Stati di consegna aggiornati.', failures ? 'error' : 'success');
+    launchWhatsApp(next);
   });
 
   UI.qs('#copyParty').addEventListener('click', () => UI.copyText(pathUrl(state.event.publicPath), 'Link della dashboard copiato.'));

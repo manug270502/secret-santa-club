@@ -11,7 +11,6 @@ const required = [
   'src/api-app.mjs',
   'src/domain.mjs',
   'src/repository.mjs',
-  'src/twilio-whatsapp.mjs',
   'public/index.html',
   'public/admin.html',
   'public/participant.html',
@@ -23,7 +22,6 @@ const required = [
   'public/js/dashboard.js',
   'public/css/styles.css',
   '.env.example',
-  'docs/CONFIGURAZIONE-TWILIO-WHATSAPP.md',
 ];
 
 const missing = required.filter((item) => !fs.existsSync(path.join(root, item)));
@@ -47,7 +45,6 @@ const syntaxFiles = [
   'src/domain.mjs',
   'src/file-blob-store.mjs',
   'src/repository.mjs',
-  'src/twilio-whatsapp.mjs',
   'public/js/common.js',
   'public/js/home.js',
   'public/js/admin.js',
@@ -65,5 +62,5 @@ for (const relative of syntaxFiles) {
   }
 }
 
-console.log('✓ Struttura Netlify verificata: frontend, Functions, Blob e Twilio pronti.');
+console.log('✓ Struttura Netlify verificata: frontend, Functions, Blob e inviti WhatsApp click-to-chat pronti.');
 console.log(`✓ Sintassi verificata per ${syntaxFiles.length} file JavaScript.`);

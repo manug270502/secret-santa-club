@@ -1,174 +1,125 @@
-# Aggiornare e pubblicare Secret Santa Club su Netlify
+# Aggiornare Secret Santa Club su Netlify
 
-Questa versione e pensata anche per un sito gia collegato a GitHub e Netlify.
+Questa versione mantiene Netlify e i Blob gia esistenti, ma usa inviti WhatsApp gratuiti con conferma finale manuale.
 
-## 1. Fai una copia di sicurezza
+## 1. Fai una copia della cartella attuale
 
-Prima di sostituire i file, duplica la cartella locale del progetto oppure crea un branch Git:
+Prima di sostituire i file, duplica la cartella locale del progetto oppure crea un branch:
 
 ```bash
-git checkout -b backup-prima-twilio
+git checkout -b backup-prima-v4
 git checkout main
 ```
 
-Non cancellare la cartella nascosta `.git` del repository esistente.
+## 2. Copia la nuova versione
 
-## 2. Sostituisci i file del progetto
+Estrai lo ZIP e copia il contenuto della cartella `secret-santa-club-netlify` nel repository locale gia collegato a GitHub.
 
-Estrai il nuovo pacchetto e copia il contenuto della cartella `secret-santa-club-netlify` dentro la cartella del repository live. Accetta la sostituzione dei file omonimi.
+Non eliminare:
 
-Non copiare eventuali cartelle temporanee come `.local-data` o `node_modules`.
+```text
+.git
+```
 
-Gli store Netlify Blobs mantengono i nomi precedenti, quindi il deploy aggiornato continua a leggere eventi e foto gia salvati.
+La cartella `.git` contiene il collegamento al repository remoto.
 
 ## 3. Verifica in locale
 
-Nel terminale di Visual Studio Code:
-
 ```bash
-npm run check
 npm start
 ```
 
-Apri:
+Apri `http://localhost:3000`, crea una festa di prova e controlla:
 
-```text
-http://localhost:3000
+- il flag **Parteciperai anche tu?**;
+- il layout da telefono;
+- il pulsante **Apri WhatsApp**;
+- il pulsante **Apri il prossimo**;
+- la spunta **Chat WhatsApp aperta**;
+- il reset `↺` di una singola spunta.
+
+Per eseguire tutti i controlli:
+
+```bash
+npm run check
 ```
 
-Controlla almeno:
-
-- il toggle **Parteciperai anche tu?**;
-- la comparsa/scomparsa di nome e numero admin;
-- il form partecipanti su una finestra stretta;
-- la cabina admin su mobile;
-- pagina partecipante e dashboard.
-
-I dati locali sono separati da quelli online.
-
-## 4. Pubblica tramite GitHub
-
-Nel repository gia configurato:
+## 4. Pubblica
 
 ```bash
 git status
 git add .
-git commit -m "Mobile, admin partecipante e inviti WhatsApp Twilio"
+git commit -m "Inviti WhatsApp gratuiti click-to-chat"
 git push
 ```
 
-Non serve eseguire di nuovo `git init` o `git remote add origin`.
+Netlify rileva il push e avvia automaticamente il deploy.
 
-Netlify rilevera il push e avviera automaticamente il deploy con:
+## 5. Controlla il deploy
 
-```text
-Build command: npm run build
-Publish directory: public
-Functions directory: netlify/functions
-Node: 22
-```
+Dalla pagina **Deploys** di Netlify attendi lo stato `Published`, poi apri il dominio `https://...netlify.app`.
 
-## 5. Verifica il deploy prima di Twilio
+Crea la festa definitiva direttamente sul sito online, non su `localhost`, perche i dati locali e quelli Netlify sono separati.
 
-Apri il dominio `https://...netlify.app` e controlla che:
-
-- la homepage carichi senza errori;
-- la creazione evento funzioni;
-- il nuovo admin partecipante venga mostrato con il badge Admin;
-- la dashboard comune non mostri abbinamenti;
-- la cabina admin mostri il riquadro di configurazione Twilio.
-
-Senza variabili Twilio, la pagina segnala che l'automazione non e ancora attiva. Questo e previsto.
-
-## 6. Configura Twilio
-
-Segui integralmente:
-
-```text
-docs/CONFIGURAZIONE-TWILIO-WHATSAPP.md
-```
-
-In sintesi servono:
-
-```dotenv
-TWILIO_ACCOUNT_SID=AC...
-TWILIO_API_KEY=SK...
-TWILIO_API_SECRET=...
-TWILIO_MESSAGING_SERVICE_SID=MG...
-TWILIO_CONTENT_SID=HX...
-TWILIO_ALLOW_FREEFORM=false
-```
-
-Puoi sostituire `TWILIO_MESSAGING_SERVICE_SID` con `TWILIO_WHATSAPP_FROM` e API Key/API Secret con `TWILIO_AUTH_TOKEN`, ma la configurazione sopra e quella consigliata.
-
-## 7. Imposta le variabili in Netlify
-
-Usa la dashboard Netlify, non `netlify.toml` e non GitHub.
-
-Rendi le variabili disponibili alle Functions e al contesto Production. Dopo il salvataggio esegui un nuovo deploy affinche le Functions usino la configurazione aggiornata.
-
-Apri `/api/system` soltanto per una verifica tecnica: deve indicare `whatsappAutomation.configured: true`, senza mostrare alcun segreto.
-
-## 8. Crea o aggiorna l'evento
-
-Per i nuovi eventi tutti i numeri WhatsApp sono obbligatori. L'admin sceglie:
-
-- toggle attivo: entra nel sorteggio, inserisce nome e numero e riceve il proprio link;
-- toggle disattivo: resta solo organizzatore e non appare tra i partecipanti.
-
-Gli eventi creati con la versione precedente restano accessibili. Se un vecchio partecipante non ha numero o il numero e errato, usa il pulsante con la matita nella sua riga: il nuovo numero viene salvato e lo stato dell'invito torna a **Da inviare**.
-
-## 9. Invia gli inviti
+## 6. Usa gli inviti WhatsApp
 
 Nella cabina admin:
 
-- **Invia tutti** spedisce in sequenza tutti gli inviti non ancora inviati;
-- **Invia ora** spedisce una singola riga;
-- **Reinvia** richiede conferma per evitare duplicati;
-- **Aggiorna consegne** interroga Twilio per gli stati correnti;
-- **Backup link** copia i link personali come soluzione di emergenza.
+1. premi **Apri WhatsApp** sulla prima persona;
+2. si apre la chat con destinatario, testo e link gia compilati;
+3. premi **Invia** dentro WhatsApp;
+4. torna alla regia;
+5. premi **Apri il prossimo**.
 
-Quando Twilio e attivo, non viene aperta alcuna finestra WhatsApp.
+La regia salva una spunta quando apre la chat. Per prudenza la dicitura e **Chat WhatsApp aperta**, non **Messaggio inviato**: un normale sito non puo leggere l'esito del tuo WhatsApp personale.
 
-## 10. Aggiornamenti successivi
+## Eventi esistenti
 
-Dopo ogni modifica:
+Gli store Netlify restano:
 
-```bash
-npm run check
-git add .
-git commit -m "Descrizione modifica"
-git push
+```text
+secret-santa-data-v2
+secret-santa-media-v2
 ```
 
-Eventi e foto restano nei Netlify Blobs tra un deploy e l'altro.
+Eventi, link e foto esistenti continuano quindi a funzionare. La prima lettura converte in modo compatibile i vecchi stati degli inviti. Cambiando un numero WhatsApp, la spunta di quella persona viene azzerata.
 
-## 11. Risoluzione rapida
+## Variabili ambiente
 
-### Il deploy fallisce
+Non servono variabili WhatsApp. Puoi rimuovere dal progetto Netlify eventuali variabili con prefisso `TWILIO_`.
 
-Apri il log Netlify e verifica Node 22, `npm run build` e l'installazione di `@netlify/blobs`.
+Restano facoltative:
 
-### La pagina dice che Twilio non e configurato
+```text
+PUBLIC_BASE_URL=
+ENABLE_DEMO=false
+BLOBS_REGION=eu-central-1
+```
 
-Controlla i nomi esatti delle variabili, il contesto Production, lo scope Functions e avvia un nuovo deploy.
+Dopo aver rimosso vecchie variabili, esegui un nuovo deploy solo per mantenere pulita la configurazione; il codice non le usa comunque.
 
-### Il template viene rifiutato
+## Problemi comuni
 
-Usa un testo chiaro, campioni realistici e categoria coerente. Un invito a un evento viene normalmente trattato come Marketing, non come Utility.
+### Git dice che non ci sono modifiche
 
-### Il messaggio fallisce
+Verifica di avere copiato i nuovi file dentro la cartella che contiene `.git`:
 
-Premi **Aggiorna consegne**, apri i Messaging Logs Twilio e verifica sender, Content SID, opt-in e formato E.164.
+```bash
+git status
+```
 
-### La foto non parte da mobile
+### WhatsApp apre una chat sbagliata
 
-Controlla il permesso fotocamera e prova da HTTPS sul dominio Netlify, non da un indirizzo HTTP della rete locale.
+Modifica il numero dalla matita nella cabina admin e usa il formato internazionale, per esempio:
 
-### Vedo dati diversi tra locale e online
+```text
++39 333 123 4567
+```
 
-E corretto: `.local-data` e Netlify Blobs sono archivi separati.
+### Il browser blocca l'apertura
 
-### Ho perso il link admin
+Premi direttamente **Apri WhatsApp** sulla riga del partecipante. L'apertura avviene in risposta a un gesto dell'utente e normalmente non viene bloccata. Su computer deve essere disponibile WhatsApp Web o l'app desktop; su telefono viene aperta l'app.
 
-Recuperalo dalla cronologia o dai tuoi appunti. Non esiste un elenco pubblico degli eventi per proteggere gli abbinamenti.
+### La spunta non significa consegnato
+
+E corretto: segnala soltanto che il sito ha aperto la chat. La conferma reale rimane visibile esclusivamente dentro WhatsApp.

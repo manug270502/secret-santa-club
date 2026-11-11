@@ -44,10 +44,9 @@
       <div class="admin-main-column">
         <article class="panel share-panel">
           <div class="panel-heading">
-            <div><span class="panel-kicker">PASSO 1</span><h2>Invia gli inviti personali</h2><p>Con Twilio configurato, il sito invia direttamente su WhatsApp: non apre chat e non richiede copia-incolla.</p></div>
+            <div><span class="panel-kicker">PASSO 1</span><h2>Invia gli inviti personali</h2><p>Apri la chat corretta con destinatario, testo e link già pronti. Dentro WhatsApp premi soltanto Invia.</p></div>
             <div class="panel-heading-actions">
-              <button class="button button-primary button-small" id="sendAllInvites" type="button">Invia tutti</button>
-              <button class="button button-secondary button-small" id="refreshInviteStatuses" type="button">Aggiorna consegne</button>
+              <button class="button button-primary button-small" id="openNextInvite" type="button">Apri il prossimo</button>
               <button class="button button-ghost button-small" id="copyAllButton" type="button">Backup link</button>
             </div>
           </div>
@@ -59,12 +58,12 @@
               <button class="icon-button" id="refreshBase" type="button" title="Usa l'indirizzo corrente">↻</button>
             </div>
             <datalist id="baseSuggestions"></datalist>
-            <small id="baseHint">Gli invii automatici usano il dominio corrente del sito o PUBLIC_BASE_URL. Il campo è solo informativo.</small>
+            <small id="baseHint">Il messaggio WhatsApp userà questo dominio per creare il link personale. Il campo è solo informativo.</small>
           </div>
 
-          <div class="automation-status" id="automationStatus" role="status">
-            <span class="automation-status-icon">⏳</span>
-            <div><strong>Controllo Twilio…</strong><p>Verifico se l’invio automatico è configurato.</p></div>
+          <div class="automation-status ready" id="sharingStatus" role="status">
+            <span class="automation-status-icon">💬</span>
+            <div><strong>Inviti WhatsApp assistiti</strong><p>Il sito prepara tutto. WhatsApp richiede sempre il tap finale su Invia.</p></div>
           </div>
 
           <div class="participant-share-list" id="participantShareList"></div>

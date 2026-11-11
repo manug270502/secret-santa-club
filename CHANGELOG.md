@@ -1,17 +1,22 @@
 # Changelog
 
-## 3.0.0 - Netlify + Twilio
+## 4.0.0 - Inviti WhatsApp gratuiti
 
-- ridisegno responsive per smartphone;
-- toggle **Parteciperai anche tu?** nella creazione evento;
-- admin aggiunto al sorteggio solo quando il toggle e attivo;
-- nome e numero admin nascosti quando non partecipa;
-- invio WhatsApp automatico lato server tramite Twilio;
-- supporto Content Template con quattro variabili;
-- pulsanti **Invia tutti**, **Invia ora**, **Reinvia** e **Aggiorna consegne**;
-- stato messaggio persistente per partecipante;
-- modifica del numero WhatsApp dalla cabina admin;
-- blocco dei doppi invii concorrenti;
-- credenziali Twilio solo in variabili ambiente Netlify;
-- nuovi test per Twilio, privacy, mobile e concorrenza;
-- compatibilita mantenuta con gli store Blob `v2` gia in produzione.
+- rimosso l'invio a pagamento e ogni dipendenza da provider esterni;
+- aggiunto il flusso click-to-chat con destinatario, testo e link gia compilati;
+- aggiunto **Apri il prossimo** per procedere una persona alla volta;
+- aggiunta spunta persistente **Chat WhatsApp aperta** e reset per singolo partecipante;
+- mantenuti il flag **Parteciperai anche tu?** e i miglioramenti responsive mobile;
+- mantenuta la compatibilita con eventi e foto salvati nei Blob delle versioni precedenti;
+- normalizzazione server dei numeri in formato E.164;
+- aggiornati test, documentazione e controlli di build.
+
+## 3.0.0
+
+- admin partecipante opzionale;
+- nuova interfaccia mobile;
+- prima sperimentazione di invio tramite provider esterno, ora rimossa.
+
+## 2.0.0
+
+- conversione per Netlify Functions e Netlify Blobs.

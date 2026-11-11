@@ -7,12 +7,12 @@ import {
   isAllowedMood,
   isAllowedWallEmoji,
   nextCelebrationDate,
+  normalizeE164,
   normalizedInviteState,
   token,
   validateDate,
 } from './domain.mjs';
 import { SecretSantaRepository } from './repository.mjs';
-import { createTwilioWhatsAppClient, normalizeE164 } from './twilio-whatsapp.mjs';
 
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -170,7 +170,6 @@ export function createApiHandler({
   dataStore,
   mediaStore,
   env = process.env,
-  twilioClient = createTwilioWhatsAppClient(env),
 } = {}) {
   const repository = new SecretSantaRepository({ dataStore, mediaStore });
 
@@ -181,7 +180,7 @@ export function createApiHandler({
       const method = request.method.toUpperCase();
 
       if (method === 'GET' && ['/health', '/api/health'].includes(pathname)) {
-        return jsonResponse(200, { ok: true, service: 'secret-santa-club-netlify-v3', storage: 'netlify-blobs' });
+        return jsonResponse(200, { ok: true, service: 'secret-santa-club-netlify-v4', storage: 'netlify-blobs' });
       }
 
       if (method === 'GET' && pathname === '/api/system') {
@@ -193,7 +192,11 @@ export function createApiHandler({
           hosting: 'netlify',
           persistentStorage: true,
           demoEnabled: demoEnabled(env),
-          whatsappAutomation: twilioClient.publicConfig(),
+          whatsappSharing: {
+            mode: 'click-to-chat',
+            automatic: false,
+            finalConfirmationRequired: true,
+          },
         });
       }
 
@@ -250,121 +253,42 @@ export function createApiHandler({
         return jsonResponse(200, { ok: true, ...outcome.result });
       }
 
-      match = /^\/api\/admin\/([^/]+)\/invites\/([^/]+)\/send$/.exec(pathname);
+      match = /^\/api\/admin\/([^/]+)\/invites\/([^/]+)\/opened$/.exec(pathname);
       if (match && method === 'POST') {
         const adminToken = assertOpaqueToken(match[1], 'Link admin');
         const participantId = assertOpaqueToken(match[2], 'Partecipante');
-        const body = await readJson(request);
-        const base = getBaseUrl(request, env);
-
-        const claim = await repository.mutateEventByAdminToken(adminToken, (event) => {
+        const outcome = await repository.mutateEventByAdminToken(adminToken, (event) => {
           const participant = event.participants.find((item) => item.id === participantId);
           if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
-          const phone = normalizeE164(participant.phone);
-          if (!phone) throw new HttpError(400, `Manca un numero WhatsApp valido per ${participant.name}.`);
-
-          const previous = normalizedInviteState(participant.invite);
-          const alreadyActive = new Set(['accepted', 'scheduled', 'queued', 'sending', 'sent', 'delivered', 'read']).has(previous.status);
-          if (alreadyActive && body.force !== true) {
-            throw new HttpError(409, `L’invito di ${participant.name} risulta già inviato. Usa “Reinvia” solo se necessario.`);
+          if (!normalizeE164(participant.phone)) {
+            throw new HttpError(400, `Manca un numero WhatsApp valido per ${participant.name}.`);
           }
-
+          const previous = normalizedInviteState(participant.invite);
+          const now = new Date().toISOString();
           participant.invite = {
-            ...previous,
-            status: 'sending',
-            updatedAt: new Date().toISOString(),
-            errorCode: '',
-            errorMessage: '',
-            attempts: previous.attempts + 1,
-          };
-          return {
-            participantName: participant.name,
-            phone,
-            participantToken: participant.token,
-            eventName: event.name,
-            eventDate: event.date,
-          };
-        });
-        if (!claim) throw new HttpError(404, 'Evento non trovato.');
-
-        const inviteUrl = `${base}/join/${claim.result.participantToken}`;
-        const dateText = claim.result.eventDate
-          ? new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
-            .format(new Date(`${claim.result.eventDate}T12:00:00`))
-          : 'data da definire';
-
-        let result;
-        try {
-          result = await twilioClient.sendInvite({
-            to: claim.result.phone,
-            participantName: claim.result.participantName,
-            eventName: claim.result.eventName,
-            dateText,
-            inviteUrl,
-          });
-        } catch (error) {
-          await repository.mutateEventByAdminToken(adminToken, (draft) => {
-            const target = draft.participants.find((item) => item.id === participantId);
-            if (!target) return { updated: false };
-            const current = normalizedInviteState(target.invite);
-            target.invite = {
-              ...current,
-              status: 'failed',
-              updatedAt: new Date().toISOString(),
-              errorCode: cleanText(error.twilioCode, 30),
-              errorMessage: cleanText(error.message, 240),
-            };
-            return { updated: true };
-          }).catch(() => {});
-          throw error;
-        }
-
-        const now = new Date().toISOString();
-        const outcome = await repository.mutateEventByAdminToken(adminToken, (draft) => {
-          const target = draft.participants.find((item) => item.id === participantId);
-          if (!target) throw new HttpError(404, 'Partecipante non trovato.');
-          const current = normalizedInviteState(target.invite);
-          target.invite = {
-            ...current,
-            status: result.status,
-            messageSid: result.sid,
-            sentAt: now,
+            status: 'opened',
+            openedAt: previous.openedAt || now,
             updatedAt: now,
-            errorCode: result.errorCode || '',
-            errorMessage: result.errorMessage || '',
+            openCount: previous.openCount + 1,
           };
-          return { invite: target.invite };
+          return { invite: participant.invite };
         });
         if (!outcome) throw new HttpError(404, 'Evento non trovato.');
-        return jsonResponse(200, { ok: true, invite: outcome.result.invite });
+        return jsonResponse(200, { ok: true, invite: normalizedInviteState(outcome.result.invite) });
       }
 
-      match = /^\/api\/admin\/([^/]+)\/invites\/([^/]+)\/refresh$/.exec(pathname);
+      match = /^\/api\/admin\/([^/]+)\/invites\/([^/]+)\/reset$/.exec(pathname);
       if (match && method === 'POST') {
         const adminToken = assertOpaqueToken(match[1], 'Link admin');
         const participantId = assertOpaqueToken(match[2], 'Partecipante');
-        const event = await repository.getEventByAdminToken(adminToken);
-        if (!event) throw new HttpError(404, 'Evento non trovato.');
-        const participant = event.participants.find((item) => item.id === participantId);
-        if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
-        const current = normalizedInviteState(participant.invite);
-        if (!current.messageSid) throw new HttpError(400, 'Questo invito non ha ancora un messaggio Twilio da controllare.');
-        const result = await twilioClient.getMessageStatus(current.messageSid);
-        const outcome = await repository.mutateEventByAdminToken(adminToken, (draft) => {
-          const target = draft.participants.find((item) => item.id === participantId);
-          if (!target) throw new HttpError(404, 'Partecipante non trovato.');
-          const previous = normalizedInviteState(target.invite);
-          target.invite = {
-            ...previous,
-            status: result.status,
-            updatedAt: new Date().toISOString(),
-            errorCode: result.errorCode || '',
-            errorMessage: result.errorMessage || '',
-          };
-          return { invite: target.invite };
+        const outcome = await repository.mutateEventByAdminToken(adminToken, (event) => {
+          const participant = event.participants.find((item) => item.id === participantId);
+          if (!participant) throw new HttpError(404, 'Partecipante non trovato.');
+          participant.invite = normalizedInviteState();
+          return { invite: participant.invite };
         });
         if (!outcome) throw new HttpError(404, 'Evento non trovato.');
-        return jsonResponse(200, { ok: true, invite: outcome.result.invite });
+        return jsonResponse(200, { ok: true, invite: normalizedInviteState(outcome.result.invite) });
       }
 
       match = /^\/api\/admin\/([^/]+)\/redraw$/.exec(pathname);

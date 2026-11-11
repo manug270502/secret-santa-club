@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#12382d">
-  <meta name="description" content="Crea il tuo Secret Santa, invia automaticamente gli inviti WhatsApp e vivi l'attesa insieme.">
+  <meta name="description" content="Crea il tuo Secret Santa, prepara gli inviti WhatsApp in un tap e vivi l'attesa insieme.">
   <title>Secret Santa Club — Il sorteggio più magico</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/styles.css">
@@ -29,7 +29,7 @@
       <div class="hero-copy reveal-in">
         <div class="eyebrow"><span class="live-dot"></span> Natale, ma con più suspense</div>
         <h1>Il regalo è segreto.<br><em>La festa no.</em></h1>
-        <p class="hero-lead">Organizza il sorteggio, invia automaticamente i link personali su WhatsApp e trasforma l’attesa in una piccola festa online.</p>
+        <p class="hero-lead">Organizza il sorteggio, apri le chat WhatsApp con link e testo già pronti e trasforma l’attesa in una piccola festa online.</p>
         <div class="hero-cta">
           <a class="button button-primary button-large" href="#crea">Crea il tuo Secret Santa <span aria-hidden="true">→</span></a>
           <button class="button button-ghost button-large" id="demoButton" type="button">Apri una demo</button>
@@ -107,7 +107,7 @@
       <div class="create-intro">
         <span class="eyebrow light">La slitta parte da qui</span>
         <h2>Crea la tua festa</h2>
-        <p>Bastano tre partecipanti totali. Con Twilio configurato, dalla pagina admin invii automaticamente messaggio e link personale senza aprire WhatsApp.</p>
+        <p>Bastano tre partecipanti totali. Dalla pagina admin apri la chat corretta con messaggio e link personale già pronti: dentro WhatsApp premi soltanto Invia.</p>
         <div class="feature-list compact">
           <span><b>✓</b> Nessuna registrazione per gli invitati</span>
           <span><b>✓</b> Foto caricata o scattata al momento</span>
@@ -157,7 +157,7 @@
           <div class="builder-heading">
             <div>
               <span class="field-label">Partecipanti *</span>
-              <small>Inserisci il numero con prefisso internazionale, ad esempio +39. Servirà per l’invio automatico tramite Twilio.</small>
+              <small>Inserisci il numero con prefisso internazionale, ad esempio +39. Servirà per aprire direttamente la chat giusta.</small>
             </div>
             <span class="participant-count" id="participantCount">0 elfi</span>
           </div>
@@ -167,12 +167,12 @@
 
         <label class="check-row">
           <input type="checkbox" id="privacyCheck" required>
-          <span>Confermo di avere il consenso dei partecipanti a usare nomi, numeri e foto e a inviare loro l’invito WhatsApp.</span>
+          <span>Confermo di avere il consenso dei partecipanti a usare nomi, numeri e foto e a preparare per loro l’invito WhatsApp.</span>
         </label>
         <button class="button button-primary button-full button-large" type="submit" id="createButton">
           <span>Sorteggia e crea gli inviti</span><b aria-hidden="true">🎁</b>
         </button>
-        <p class="form-footnote">Il sorteggio viene salvato su Netlify. I link personali sono segreti; gli invii automatici richiedono Twilio configurato dall’amministratore del sito.</p>
+        <p class="form-footnote">Il sorteggio viene salvato su Netlify. I link personali sono segreti; WhatsApp richiede sempre la conferma finale dell’invio.</p>
       </form>
     </section>
 

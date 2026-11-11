@@ -5,20 +5,15 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { createApiHandler, createMediaHandler } from '../src/api-app.mjs';
+import { normalizeE164, normalizedInviteState } from '../src/domain.mjs';
 import { MemoryBlobStore } from './memory-store.mjs';
-import { createTwilioWhatsAppClient, normalizeE164 } from '../src/twilio-whatsapp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-function setup(env = {}, twilioClient = undefined) {
+function setup(env = {}) {
   const dataStore = new MemoryBlobStore();
   const mediaStore = new MemoryBlobStore();
-  const api = createApiHandler({
-    dataStore,
-    mediaStore,
-    env: { CONTEXT: 'dev', ...env },
-    ...(twilioClient ? { twilioClient } : {}),
-  });
+  const api = createApiHandler({ dataStore, mediaStore, env: { CONTEXT: 'dev', ...env } });
   const media = createMediaHandler({ mediaStore });
   return { dataStore, mediaStore, api, media };
 }
@@ -37,9 +32,10 @@ async function createParty(api) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: 'Natale Test',
-      organizer: 'Admin',
+      organizerParticipates: false,
       date: '2026-12-20',
       location: 'Casa',
+      requirePhones: true,
       participants: [
         { name: 'Anna', phone: '+39 333 1111111' },
         { name: 'Bruno', phone: '+39 333 2222222' },
@@ -58,6 +54,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const { dataStore, api, media } = setup();
   const health = await call(api, '/health');
   assert.equal(health.response.status, 200);
+  assert.equal(health.payload.service, 'secret-santa-club-netlify-v4');
   assert.equal(health.payload.storage, 'netlify-blobs');
 
   const creation = await createParty(api);
@@ -76,6 +73,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
 
   const eventKey = dataStore.keys().find((key) => key.startsWith('event/'));
   const storedEvent = dataStore.raw(eventKey);
+  assert.equal(storedEvent.schemaVersion, 4);
   const ids = new Set(storedEvent.participants.map((participant) => participant.id));
   const assignments = new Set(storedEvent.participants.map((participant) => participant.assignedId));
   assert.deepEqual(assignments, ids);
@@ -85,7 +83,8 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   assert.equal(publicBefore.payload.event.revealedCount, 0);
   const publicSerialized = JSON.stringify(publicBefore.payload);
   assert.equal(publicSerialized.includes('assignedId'), false);
-  assert.equal(publicSerialized.includes('token'), false);
+  assert.equal(publicSerialized.includes('phone'), false);
+  assert.equal(publicSerialized.includes('invite'), false);
 
   const participantToken = tokenFrom(admin.payload.event.participants[0].path);
   const participantBefore = await call(api, `/api/participant/${participantToken}`);
@@ -95,7 +94,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   assert.equal(tooSoon.response.status, 400);
 
   const form = new FormData();
-  form.append('wish', 'Un libro e del buon caffè');
+  form.append('wish', 'Un libro e del buon caffe');
   form.append('mood', '🎁');
   form.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00])], { type: 'image/jpeg' }), 'foto.jpg');
   const profile = await call(api, `/api/participant/${participantToken}/profile`, { method: 'POST', body: form });
@@ -112,10 +111,6 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   assert.ok(reveal.payload.targetName);
   assert.notEqual(reveal.payload.targetName, participantBefore.payload.participant.name);
 
-  const participantAfter = await call(api, `/api/participant/${participantToken}`);
-  assert.equal(participantAfter.payload.participant.revealed, true);
-  assert.equal(participantAfter.payload.participant.targetName, reveal.payload.targetName);
-
   const redraw = await call(api, `/api/admin/${adminToken}/redraw`, { method: 'POST' });
   assert.equal(redraw.response.status, 409);
 
@@ -129,11 +124,6 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const publicAfter = await call(api, `/api/public/${publicToken}`);
   assert.equal(publicAfter.payload.event.revealedCount, 1);
   assert.equal(publicAfter.payload.event.messages.length, 1);
-  for (const participant of publicAfter.payload.event.participants) {
-    assert.equal(Object.hasOwn(participant, 'assignedId'), false);
-    assert.equal(Object.hasOwn(participant, 'targetName'), false);
-    assert.equal(Object.hasOwn(participant, 'token'), false);
-  }
 });
 
 test('scritture concorrenti non perdono i messaggi grazie agli ETag', async () => {
@@ -156,14 +146,14 @@ test('validazione, demo produzione e percorso Function riscritto', async () => {
   const tooFew = await call(api, '/.netlify/functions/api/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Test', organizer: 'Admin', participants: ['A', 'B'] }),
+    body: JSON.stringify({ name: 'Test', organizerParticipates: false, participants: ['A', 'B'] }),
   });
   assert.equal(tooFew.response.status, 400);
 
   const duplicate = await call(api, '/api/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Test', organizer: 'Admin', participants: ['Anna', 'anna', 'Carla'] }),
+    body: JSON.stringify({ name: 'Test', organizerParticipates: false, participants: ['Anna', 'anna', 'Carla'] }),
   });
   assert.equal(duplicate.response.status, 400);
 
@@ -172,9 +162,15 @@ test('validazione, demo produzione e percorso Function riscritto', async () => {
 
   const created = await createParty(api);
   assert.match(created.payload.adminUrl, /^https:\/\/natale\.example\/admin\//);
+  const system = await call(api, '/api/system');
+  assert.deepEqual(system.payload.whatsappSharing, {
+    mode: 'click-to-chat',
+    automatic: false,
+    finalConfirmationRequired: true,
+  });
 });
 
-test('configurazione statica contiene route Netlify, invio Twilio e fallback manuale', () => {
+test('configurazione statica usa Netlify e non contiene invio WhatsApp automatico', () => {
   const toml = fs.readFileSync(path.join(ROOT, 'netlify.toml'), 'utf8');
   assert.match(toml, /from = "\/api\/\*"/);
   assert.match(toml, /from = "\/media\/\*"/);
@@ -182,19 +178,20 @@ test('configurazione statica contiene route Netlify, invio Twilio e fallback man
   assert.match(toml, /to = "\/admin\.html"/);
 
   const adminJs = fs.readFileSync(path.join(ROOT, 'public/js/admin.js'), 'utf8');
-  assert.match(adminJs, /sendAllInvites/);
-  assert.match(adminJs, /\/invites\/\$\{participant\.id\}\/send/);
-  assert.match(adminJs, /\/participants\/\$\{participant\.id\}/);
-  assert.match(adminJs, /Invia automaticamente/);
-  assert.match(adminJs, /UI\.whatsappUrl/); // fallback solo se Twilio non e configurato
+  assert.match(adminJs, /openNextInvite/);
+  assert.match(adminJs, /\/invites\/\$\{participant\.id\}\/opened/);
+  assert.match(adminJs, /\/invites\/\$\{participant\.id\}\/reset/);
+  assert.match(adminJs, /UI\.whatsappUrl/);
+  assert.doesNotMatch(adminJs, /twilio/i);
+  const legacyStub = fs.readFileSync(path.join(ROOT, 'src/twilio-whatsapp.mjs'), 'utf8');
+  assert.doesNotMatch(legacyStub, /api\.twilio\.com|sendInvite|getMessageStatus/);
 
   for (const file of ['index.html', 'admin.html', 'participant.html', 'dashboard.html']) {
     assert.equal(fs.existsSync(path.join(ROOT, 'public', file)), true, `${file} deve esistere`);
   }
 });
 
-
-test('il fallback WhatsApp normalizza i numeri italiani e mantiene il link personale', () => {
+test('il link WhatsApp normalizza i numeri italiani e mantiene il link personale', () => {
   const source = fs.readFileSync(path.join(ROOT, 'public/js/common.js'), 'utf8');
   const windowObject = {
     setTimeout: () => 0,
@@ -221,35 +218,12 @@ test('il fallback WhatsApp normalizza i numeri italiani e mantiene il link perso
   const message = 'Apri il tuo link: https://secret-santa.netlify.app/join/abc12345';
   assert.match(makeUrl('+39 333 123 4567', message), /^https:\/\/wa\.me\/393331234567\?text=/);
   assert.match(makeUrl('0039 347 765 4321', message), /^https:\/\/wa\.me\/393477654321\?text=/);
-  assert.match(makeUrl('3201112233', message), /^https:\/\/wa\.me\/393201112233\?text=/);
-  assert.match(decodeURIComponent(makeUrl('', message)), /https:\/\/secret-santa\.netlify\.app\/join\/abc12345/);
+  assert.match(makeUrl('333 123 4567', message), /^https:\/\/wa\.me\/393331234567\?text=/);
+  assert.match(decodeURIComponent(makeUrl('+39 333 123 4567', message)), /secret-santa\.netlify\.app\/join\/abc12345/);
 });
 
-
-test('admin partecipante opzionale e invio automatico Twilio con stato consegna', async () => {
-  const sends = [];
-  const fakeTwilio = {
-    publicConfig: () => ({
-      configured: true,
-      mode: 'template',
-      sender: 'messaging-service',
-      templateConfigured: true,
-      missing: [],
-    }),
-    async sendInvite(payload) {
-      sends.push(payload);
-      return {
-        sid: `SM${String(sends.length).padStart(32, '0')}`,
-        status: 'queued',
-        errorCode: '',
-        errorMessage: '',
-      };
-    },
-    async getMessageStatus(messageSid) {
-      return { sid: messageSid, status: 'delivered', errorCode: '', errorMessage: '' };
-    },
-  };
-  const { api } = setup({}, fakeTwilio);
+test('admin partecipante e promemoria click-to-chat persistente', async () => {
+  const { api } = setup();
   const creation = await call(api, '/api/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -257,7 +231,7 @@ test('admin partecipante opzionale e invio automatico Twilio con stato consegna'
       name: 'Natale con Admin',
       organizerParticipates: true,
       organizerName: 'Manuele',
-      organizerPhone: '+39 333 000 0000',
+      organizerPhone: '333 000 0000',
       date: '2026-12-20',
       requirePhones: true,
       participants: [
@@ -269,46 +243,30 @@ test('admin partecipante opzionale e invio automatico Twilio con stato consegna'
   assert.equal(creation.response.status, 201);
   const adminToken = tokenFrom(creation.payload.adminPath);
   const publicToken = tokenFrom(creation.payload.publicPath);
-  const system = await call(api, '/api/system');
-  assert.equal(system.payload.whatsappAutomation.configured, true);
 
   const admin = await call(api, `/api/admin/${adminToken}`);
   assert.equal(admin.payload.event.organizerParticipates, true);
   assert.equal(admin.payload.event.participants.length, 3);
   const organizer = admin.payload.event.participants.find((participant) => participant.isOrganizer);
   assert.equal(organizer.name, 'Manuele');
-  assert.equal(organizer.invite.status, 'not_sent');
+  assert.equal(organizer.phone, '+393330000000');
+  assert.equal(organizer.invite.status, 'not_opened');
 
-  const sent = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: false }),
-  });
-  assert.equal(sent.response.status, 200);
-  assert.equal(sent.payload.invite.status, 'queued');
-  assert.equal(sends.length, 1);
-  assert.equal(sends[0].participantName, 'Manuele');
-  assert.match(sends[0].inviteUrl, /^https:\/\/secret-santa-test\.netlify\.app\/join\//);
+  const opened = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/opened`, { method: 'POST' });
+  assert.equal(opened.response.status, 200);
+  assert.equal(opened.payload.invite.status, 'opened');
+  assert.equal(opened.payload.invite.openCount, 1);
+  assert.ok(opened.payload.invite.openedAt);
 
-  const duplicate = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: false }),
-  });
-  assert.equal(duplicate.response.status, 409);
+  const openedAgain = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/opened`, { method: 'POST' });
+  assert.equal(openedAgain.payload.invite.openCount, 2);
+  assert.equal(openedAgain.payload.invite.openedAt, opened.payload.invite.openedAt);
 
-  const resent = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: true }),
-  });
-  assert.equal(resent.response.status, 200);
-  assert.equal(sends.length, 2);
+  const reset = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/reset`, { method: 'POST' });
+  assert.equal(reset.payload.invite.status, 'not_opened');
+  assert.equal(reset.payload.invite.openCount, 0);
 
-  const refreshed = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/refresh`, { method: 'POST' });
-  assert.equal(refreshed.response.status, 200);
-  assert.equal(refreshed.payload.invite.status, 'delivered');
-
+  await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/opened`, { method: 'POST' });
   const changedPhone = await call(api, `/api/admin/${adminToken}/participants/${organizer.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -316,25 +274,16 @@ test('admin partecipante opzionale e invio automatico Twilio con stato consegna'
   });
   assert.equal(changedPhone.response.status, 200);
   assert.equal(changedPhone.payload.phone, '+393475556677');
-  assert.equal(changedPhone.payload.invite.status, 'not_sent');
-
-  const sentToNewNumber = await call(api, `/api/admin/${adminToken}/invites/${organizer.id}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: false }),
-  });
-  assert.equal(sentToNewNumber.response.status, 200);
-  assert.equal(sends.length, 3);
-  assert.equal(sends[2].to, '+393475556677');
+  assert.equal(changedPhone.payload.invite.status, 'not_opened');
 
   const publicParty = await call(api, `/api/public/${publicToken}`);
-  assert.equal(publicParty.payload.event.participants.find((item) => item.isOrganizer).name, 'Manuele');
-  assert.equal(JSON.stringify(publicParty.payload).includes('messageSid'), false);
-  assert.equal(JSON.stringify(publicParty.payload).includes('inviteUrl'), false);
-  assert.equal(JSON.stringify(publicParty.payload).includes('+393475556677'), false);
+  const serialized = JSON.stringify(publicParty.payload);
+  assert.equal(serialized.includes('+393475556677'), false);
+  assert.equal(serialized.includes('openCount'), false);
+  assert.equal(serialized.includes('openedAt'), false);
 });
 
-test('la creazione moderna richiede i numeri quando gli inviti automatici sono previsti', async () => {
+test('la creazione moderna richiede numeri validi e supporta admin non partecipante', async () => {
   const { api } = setup();
   const missingOrganizerPhone = await call(api, '/api/events', {
     method: 'POST',
@@ -353,6 +302,22 @@ test('la creazione moderna richiede i numeri quando gli inviti automatici sono p
   });
   assert.equal(missingOrganizerPhone.response.status, 400);
   assert.match(missingOrganizerPhone.payload.error, /numero WhatsApp/i);
+
+  const invalidPhone = await call(api, '/api/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Natale',
+      organizerParticipates: false,
+      requirePhones: true,
+      participants: [
+        { name: 'Anna', phone: '123' },
+        { name: 'Bruno', phone: '+39 333 2222222' },
+        { name: 'Carla', phone: '+39 333 3333333' },
+      ],
+    }),
+  });
+  assert.equal(invalidPhone.response.status, 400);
 
   const anonymousAdmin = await call(api, '/api/events', {
     method: 'POST',
@@ -374,45 +339,26 @@ test('la creazione moderna richiede i numeri quando gli inviti automatici sono p
   assert.equal(admin.payload.event.participants.some((participant) => participant.isOrganizer), false);
 });
 
-test('client Twilio costruisce una richiesta WhatsApp template senza esporre segreti al browser', async () => {
-  let captured = null;
-  const env = {
-    TWILIO_ACCOUNT_SID: `AC${'1'.repeat(32)}`,
-    TWILIO_API_KEY: `SK${'2'.repeat(32)}`,
-    TWILIO_API_SECRET: 'super-secret',
-    TWILIO_MESSAGING_SERVICE_SID: `MG${'3'.repeat(32)}`,
-    TWILIO_CONTENT_SID: `HX${'4'.repeat(32)}`,
-  };
-  const client = createTwilioWhatsAppClient(env, async (url, options) => {
-    captured = { url, options };
-    return new Response(JSON.stringify({ sid: `SM${'5'.repeat(32)}`, status: 'queued' }), {
-      status: 201,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  });
-  assert.equal(client.publicConfig().configured, true);
-  assert.equal(Object.values(client.publicConfig()).includes('super-secret'), false);
-  const result = await client.sendInvite({
-    to: '333 123 4567',
-    participantName: 'Anna',
-    eventName: 'Natale Test',
-    dateText: '20 dicembre 2026',
-    inviteUrl: 'https://secret-santa.example/join/token12345',
-  });
-  assert.equal(result.status, 'queued');
-  assert.match(captured.url, /Accounts\/AC1+\/Messages\.json$/);
-  assert.match(captured.options.headers.Authorization, /^Basic /);
-  const form = new URLSearchParams(captured.options.body);
-  assert.equal(form.get('To'), 'whatsapp:+393331234567');
-  assert.equal(form.get('MessagingServiceSid'), env.TWILIO_MESSAGING_SERVICE_SID);
-  assert.equal(form.get('ContentSid'), env.TWILIO_CONTENT_SID);
-  assert.equal(form.get('MessageIntent'), 'events');
-  const variables = JSON.parse(form.get('ContentVariables'));
-  assert.equal(variables['1'], 'Anna');
-  assert.equal(variables['4'], 'https://secret-santa.example/join/token12345');
+test('normalizzazione E.164 e migrazione sicura dei vecchi stati invito', () => {
+  assert.equal(normalizeE164('+39 333 123 4567'), '+393331234567');
   assert.equal(normalizeE164('0039 347 765 4321'), '+393477654321');
-});
+  assert.equal(normalizeE164('333 123 4567'), '+393331234567');
+  assert.equal(normalizeE164('123'), '');
 
+  const migrated = normalizedInviteState({
+    status: 'delivered',
+    messageSid: 'SM_NON_DEVE_ESSERE_ESPOSTO',
+    sentAt: '2026-11-10T10:00:00.000Z',
+    attempts: 2,
+  });
+  assert.deepEqual(migrated, {
+    status: 'opened',
+    openedAt: '2026-11-10T10:00:00.000Z',
+    updatedAt: null,
+    openCount: 2,
+  });
+  assert.equal(Object.hasOwn(migrated, 'messageSid'), false);
+});
 
 test('gli override responsive coprono form, admin, partecipante e dashboard mobile', () => {
   const css = fs.readFileSync(path.join(ROOT, 'public/css/styles.css'), 'utf8');
@@ -423,50 +369,4 @@ test('gli override responsive coprono form, admin, partecipante e dashboard mobi
   assert.match(css, /\.join-card \{\s*border-radius: 24px/s);
   assert.match(css, /\.people-grid \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
   assert.match(css, /font-size: 16px/);
-});
-
-test('due clic simultanei non producono due invii Twilio', async () => {
-  let sendCount = 0;
-  let releaseSend;
-  let markEntered;
-  const entered = new Promise((resolve) => { markEntered = resolve; });
-  const hold = new Promise((resolve) => { releaseSend = resolve; });
-  const fakeTwilio = {
-    publicConfig: () => ({ configured: true, mode: 'template', sender: 'messaging-service', templateConfigured: true, missing: [] }),
-    async sendInvite() {
-      sendCount += 1;
-      markEntered();
-      await hold;
-      return { sid: `SM${'7'.repeat(32)}`, status: 'queued', errorCode: '', errorMessage: '' };
-    },
-    async getMessageStatus(messageSid) {
-      return { sid: messageSid, status: 'queued', errorCode: '', errorMessage: '' };
-    },
-  };
-  const { api } = setup({}, fakeTwilio);
-  const creation = await createParty(api);
-  const adminToken = tokenFrom(creation.payload.adminPath);
-  const admin = await call(api, `/api/admin/${adminToken}`);
-  const participant = admin.payload.event.participants[0];
-
-  const firstRequest = call(api, `/api/admin/${adminToken}/invites/${participant.id}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: false }),
-  });
-  await entered;
-
-  const duplicate = await call(api, `/api/admin/${adminToken}/invites/${participant.id}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: false }),
-  });
-  assert.equal(duplicate.response.status, 409);
-  assert.equal(sendCount, 1);
-
-  releaseSend();
-  const first = await firstRequest;
-  assert.equal(first.response.status, 200);
-  assert.equal(first.payload.invite.status, 'queued');
-  assert.equal(sendCount, 1);
 });

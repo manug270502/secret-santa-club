@@ -24,6 +24,20 @@ export function cleanPhone(value) {
   return cleanText(value, 30).replace(/[^\d+ ()-]/g, '');
 }
 
+export function normalizeE164(value, defaultCountryCode = '39') {
+  const raw = String(value ?? '').trim().replace(/^whatsapp:/i, '');
+  if (!raw) return '';
+  let digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (!digits) return '';
+
+  if (raw.startsWith('+')) return /^\d{8,15}$/.test(digits) ? `+${digits}` : '';
+  if (digits.startsWith(defaultCountryCode) && /^\d{10,15}$/.test(digits)) return `+${digits}`;
+  if (/^3\d{9}$/.test(digits)) return `+${defaultCountryCode}${digits}`;
+  if (/^0\d{8,11}$/.test(digits)) return `+${defaultCountryCode}${digits}`;
+  return /^\d{8,15}$/.test(digits) ? `+${digits}` : '';
+}
+
 export function validateDate(value) {
   const date = cleanText(value, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
@@ -50,30 +64,28 @@ export function nextCelebrationDate() {
 
 function newInviteState() {
   return {
-    status: 'not_sent',
-    messageSid: '',
-    sentAt: null,
+    status: 'not_opened',
+    openedAt: null,
     updatedAt: null,
-    errorCode: '',
-    errorMessage: '',
-    attempts: 0,
+    openCount: 0,
   };
 }
 
 export function normalizedInviteState(value = {}) {
-  const allowed = new Set([
-    'not_sent', 'accepted', 'scheduled', 'canceled', 'queued', 'sending',
-    'sent', 'failed', 'delivered', 'undelivered', 'receiving', 'received', 'read',
+  const rawStatus = cleanText(value?.status, 30).toLowerCase();
+  const legacyOpenedStatuses = new Set([
+    'accepted', 'scheduled', 'queued', 'sending', 'sent', 'delivered', 'read',
+    'receiving', 'received',
   ]);
-  const status = cleanText(value?.status, 30).toLowerCase();
+  const openedAt = value?.openedAt || value?.sentAt || null;
+  const status = rawStatus === 'opened' || Boolean(openedAt) || legacyOpenedStatuses.has(rawStatus)
+    ? 'opened'
+    : 'not_opened';
   return {
-    status: allowed.has(status) ? status : 'not_sent',
-    messageSid: cleanText(value?.messageSid, 40),
-    sentAt: value?.sentAt || null,
+    status,
+    openedAt: status === 'opened' ? openedAt || value?.updatedAt || null : null,
     updatedAt: value?.updatedAt || null,
-    errorCode: cleanText(value?.errorCode, 30),
-    errorMessage: cleanText(value?.errorMessage, 240),
-    attempts: Math.max(0, Math.min(999, Number(value?.attempts) || 0)),
+    openCount: Math.max(0, Math.min(999, Number(value?.openCount ?? value?.attempts) || 0)),
   };
 }
 
@@ -105,8 +117,8 @@ export function buildEvent(payload) {
     const participantName = cleanText(item.name, 60);
     const key = participantName.toLocaleLowerCase('it-IT');
     if (!participantName) throw new HttpError(400, 'Ogni partecipante deve avere un nome.');
-    const participantPhone = cleanPhone(item.phone);
-    if (requirePhones && !participantPhone) throw new HttpError(400, `Inserisci il numero WhatsApp di ${participantName}.`);
+    const participantPhone = normalizeE164(item.phone);
+    if (requirePhones && !participantPhone) throw new HttpError(400, `Inserisci un numero WhatsApp valido per ${participantName}, includendo il prefisso internazionale.`);
     if (seen.has(key)) throw new HttpError(400, `Il nome “${participantName}” è presente più volte.`);
     seen.add(key);
     return {
@@ -130,7 +142,7 @@ export function buildEvent(payload) {
   const now = new Date().toISOString();
   const organizerParticipant = participants.find((participant) => participant.isOrganizer);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: token(10),
     name,
     organizer: organizerParticipates ? organizerName : organizerName || 'Admin della festa',

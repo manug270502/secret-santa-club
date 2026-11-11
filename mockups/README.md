@@ -1,14 +1,12 @@
-# Mockup del prototipo
+# Mockup di riferimento
 
-Queste immagini documentano la direzione visiva originale del sito e le principali schermate desktop/mobile.
+Questa cartella contiene le tavole visive originarie del progetto:
 
-- `01-homepage.png`: homepage e proposta di valore.
-- `02-admin-regia.png`: cabina di regia e condivisione inviti.
-- `03-partecipante-mobile.png`: profilo personale su mobile.
-- `04-rivelazione-mobile.png`: risultato privato su mobile.
-- `05-dashboard-comune.png`: dashboard, countdown e partecipanti.
-- `06-dashboard-giochi.png`: bingo, missioni e gioco di gruppo.
+1. homepage;
+2. cabina di regia;
+3. pagina partecipante mobile;
+4. rivelazione mobile;
+5. dashboard comune;
+6. dashboard e giochi.
 
-La versione 3 mantiene questo stile, ma aggiunge il toggle per la partecipazione dell'admin, i comandi Twilio e ulteriori correzioni responsive; per questi dettagli fa fede l'interfaccia eseguita dal codice corrente.
-
-I nomi e gli avatar sono fittizi. Il pacchetto non contiene feste, abbinamenti o fotografie reali.
+L'interfaccia eseguita dal codice corrente mantiene il linguaggio visivo dei mockup e aggiunge il flag per la partecipazione dell'admin, il flusso WhatsApp click-to-chat e correzioni responsive per schermi piccoli.

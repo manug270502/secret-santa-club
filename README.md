@@ -1,75 +1,28 @@
-# Secret Santa Club - Netlify + Twilio
+# Secret Santa Club - Netlify Free
 
-Applicazione completa per organizzare un Secret Santa online con HTTPS, sorteggio privato, foto, dashboard comune e inviti WhatsApp inviati automaticamente dal sito tramite Twilio.
-
-## Novita della versione 3
-
-- layout mobile rivisto per homepage, creazione evento, cabina admin, pagina partecipante e dashboard;
-- scelta iniziale **Parteciperai anche tu?**;
-- se l'admin partecipa, nome e numero vengono aggiunti automaticamente al sorteggio;
-- se l'admin non partecipa, i relativi campi restano nascosti;
-- invio WhatsApp automatico tramite Twilio, senza aprire WhatsApp e senza copiare link;
-- pulsante **Invia tutti** e invio/reinvio per singolo partecipante;
-- modifica del numero WhatsApp direttamente dalla riga del partecipante;
-- stati Twilio: da inviare, in coda, inviato, consegnato, letto o fallito;
-- credenziali Twilio conservate solo nelle variabili ambiente delle Netlify Functions.
+Applicazione completa per organizzare un Secret Santa online con HTTPS, sorteggio privato, foto, dashboard comune, giochi natalizi e inviti WhatsApp gratuiti in modalita click-to-chat.
 
 ## Funzioni principali
 
-- crea una festa con almeno 3 partecipanti totali;
-- genera un ciclo casuale senza auto-abbinamenti;
-- crea un URL personale e segreto per ogni partecipante;
-- invia automaticamente il template WhatsApp con il link corretto;
-- consente di caricare o scattare una foto;
-- mostra il nome estratto soltanto al partecipante corretto;
-- offre una dashboard comune con foto, indizi, giochi e muro degli auguri;
-- conserva eventi e foto in Netlify Blobs anche dopo nuovi deploy;
-- usa HTTPS automatico sul dominio `netlify.app`.
+- l'admin crea la festa e sceglie se partecipare al sorteggio;
+- se partecipa, inserisce nome e numero e viene aggiunto automaticamente alla lista;
+- ogni invitato riceve un link personale e segreto;
+- la regia apre la chat WhatsApp corretta con destinatario, testo e link gia compilati;
+- dentro WhatsApp resta soltanto da premere **Invia**;
+- la regia ricorda quali chat sono gia state aperte, senza fingere di conoscere la consegna reale;
+- ogni invitato puo caricare o scattare una foto, lasciare un indizio e scoprire il proprio abbinamento;
+- la dashboard comune mostra partecipanti, foto, countdown, indizi, missioni e muro degli auguri, ma non gli abbinamenti;
+- eventi e foto vengono salvati nei Netlify Blobs gia usati dalle versioni precedenti.
 
-## Importante su Twilio e WhatsApp
+## Perche l'invio richiede il tap finale
 
-Twilio invia i messaggi attraverso la WhatsApp Business Platform. Per messaggi avviati dal sito in produzione servono normalmente:
+Il progetto non usa API WhatsApp Business, automazioni del browser o servizi non ufficiali. Il link `wa.me` apre il normale WhatsApp dell'admin con il messaggio pronto. Questa e la soluzione gratuita e a basso rischio: WhatsApp mantiene il controllo dell'invio e l'admin preme soltanto il pulsante finale.
 
-1. un mittente WhatsApp registrato nel proprio account Twilio;
-2. il consenso esplicito dei destinatari;
-3. un Content Template WhatsApp approvato;
-4. credito Twilio sufficiente.
+Lo stato **Chat WhatsApp aperta** significa solo che il collegamento e stato aperto. Non dimostra che il messaggio sia stato inviato, consegnato o letto.
 
-Il template previsto dal progetto usa quattro variabili:
+## Avvio locale
 
-```text
-{{1}} nome del partecipante
-{{2}} nome dell'evento
-{{3}} data dell'evento
-{{4}} URL personale
-```
-
-La configurazione completa e il testo consigliato sono in [`docs/CONFIGURAZIONE-TWILIO-WHATSAPP.md`](docs/CONFIGURAZIONE-TWILIO-WHATSAPP.md).
-
-## Architettura
-
-```text
-Browser
-  |-- pagine, CSS e JavaScript -> Netlify CDN
-  |-- /api/*                   -> Netlify Function API
-  `-- /media/*                 -> Netlify Function foto
-                                      |
-                                      |-- Netlify Blobs: dati evento
-                                      |-- Netlify Blobs: foto
-                                      `-- Twilio Messaging API -> WhatsApp
-```
-
-Gli store continuano a chiamarsi `secret-santa-data-v2` e `secret-santa-media-v2` per mantenere compatibili gli eventi gia pubblicati con la versione precedente.
-
-## Avvio locale in Visual Studio Code
-
-### Requisiti
-
-- Node.js 22.13 o superiore;
-- npm;
-- browser moderno.
-
-### Avvio rapido
+Requisito: Node.js 22 o successivo.
 
 ```bash
 npm start
@@ -81,144 +34,82 @@ Apri:
 http://localhost:3000
 ```
 
-I dati di prova vengono salvati in `.local-data`, esclusa da Git. Il server legge anche un eventuale file locale `.env`, ma le credenziali reali non devono mai essere caricate su GitHub.
+Per cancellare i dati locali:
 
-Per eseguire tutti i controlli:
+```bash
+npm run reset:local
+```
+
+I dati locali vengono salvati in `.local-data`, esclusa da Git.
+
+## Verifiche
 
 ```bash
 npm run check
 ```
 
-Su Windows puoi usare anche `start-local.cmd`; su macOS/Linux `./start-local.sh`.
+Il comando esegue controllo della struttura, controllo sintattico e test automatici.
 
-### Emulazione Netlify facoltativa
+## Aggiornare il sito gia collegato a Netlify
 
-```bash
-npm install
-npm run netlify:dev
-```
-
-Netlify Dev usa normalmente `http://localhost:8888`.
-
-## Aggiornare il sito gia online
-
-Copia i file di questa versione nella cartella del repository gia collegato a Netlify, senza eliminare la cartella nascosta `.git`, quindi esegui:
+Copia i file di questa versione dentro il repository locale gia pubblicato, senza eliminare la cartella `.git`, quindi esegui:
 
 ```bash
+npm run check
 git add .
-git commit -m "Mobile, admin partecipante e inviti WhatsApp Twilio"
+git commit -m "Inviti WhatsApp gratuiti click-to-chat"
 git push
 ```
 
-Netlify avviera automaticamente un nuovo deploy. Gli eventi e le foto gia presenti nei Blob non vengono cancellati.
+Netlify avviera automaticamente il nuovo deploy. Non sono richieste variabili, account o credenziali WhatsApp.
 
-Dopo il deploy, configura le variabili Twilio in Netlify e avvia un ulteriore deploy. La guida dettagliata e in [`docs/GUIDA-PUBBLICAZIONE-NETLIFY.md`](docs/GUIDA-PUBBLICAZIONE-NETLIFY.md).
+## Configurazione Netlify
 
-## Variabili ambiente
+Il file `netlify.toml` contiene gia:
 
-```dotenv
+- build command: `npm run build`;
+- publish directory: `public`;
+- functions directory: `netlify/functions`;
+- redirect per API, media e pagine dinamiche;
+- intestazioni HTTPS e di sicurezza.
+
+Variabili facoltative:
+
+```text
 PUBLIC_BASE_URL=
 ENABLE_DEMO=false
 BLOBS_REGION=eu-central-1
-
-TWILIO_ACCOUNT_SID=
-TWILIO_API_KEY=
-TWILIO_API_SECRET=
-TWILIO_AUTH_TOKEN=
-TWILIO_MESSAGING_SERVICE_SID=
-TWILIO_WHATSAPP_FROM=
-TWILIO_CONTENT_SID=
-TWILIO_ALLOW_FREEFORM=false
 ```
 
-Configurazione consigliata per la produzione:
+Su Netlify normalmente `PUBLIC_BASE_URL` deve restare vuota: il dominio HTTPS viene rilevato automaticamente.
 
-- `TWILIO_ACCOUNT_SID`;
-- `TWILIO_API_KEY` e `TWILIO_API_SECRET`;
-- `TWILIO_MESSAGING_SERVICE_SID` oppure `TWILIO_WHATSAPP_FROM`;
-- `TWILIO_CONTENT_SID`;
-- `TWILIO_ALLOW_FREEFORM=false`.
+## Flusso degli inviti
 
-`TWILIO_AUTH_TOKEN` e un'alternativa alla coppia API Key/API Secret. Non serve valorizzarlo se usi l'API Key.
+1. L'admin inserisce nome e numero di ogni partecipante.
+2. Nella regia preme **Apri WhatsApp** sulla singola persona oppure **Apri il prossimo**.
+3. Il sito apre la chat corretta con il testo e il link personale gia pronti.
+4. L'admin preme **Invia** dentro WhatsApp.
+5. Tornando alla regia, passa al partecipante successivo.
+6. Se una spunta e stata segnata per errore, il pulsante `↺` rimette la persona tra gli inviti da aprire.
 
-## Flusso dell'admin
-
-1. Crea l'evento.
-2. Sceglie se partecipare al sorteggio.
-3. Inserisce nome e numero di ogni partecipante.
-4. Arriva nella cabina di regia.
-5. Preme **Invia tutti** oppure **Invia ora** su una singola persona.
-6. La Netlify Function costruisce il link personale e chiama Twilio dal server.
-7. Twilio consegna il template su WhatsApp.
-8. L'admin puo aggiornare gli stati di consegna dalla stessa pagina.
-
-Quando Twilio e configurato, il browser non riceve e non usa le credenziali Twilio. Se la configurazione manca, la pagina mostra chiaramente quali variabili sono assenti e lascia un collegamento manuale solo come soluzione di emergenza.
-
-## Dati e privacy
-
-I link admin e partecipante funzionano come credenziali segrete. La dashboard pubblica non riceve:
-
-- token personali o admin;
-- abbinamenti e `assignedId`;
-- nomi estratti;
-- numeri di telefono;
-- Message SID Twilio;
-- credenziali Twilio.
-
-L'admin deve raccogliere il consenso esplicito dei partecipanti prima di usare numeri e foto e prima di inviare messaggi WhatsApp. Il checkbox di creazione registra solo una conferma operativa nell'interfaccia: non sostituisce un'informativa privacy adeguata al proprio utilizzo.
-
-## Limiti utili
-
-- Il progetto e pensato per feste private e piccoli gruppi.
-- Le foto vengono compresse nel browser e il server accetta al massimo 4 MB per immagine.
-- Netlify e Twilio hanno limiti, costi e condizioni legati ai rispettivi account.
-- I messaggi WhatsApp avviati dal sito richiedono un template approvato, salvo test Sandbox o conversazioni nella finestra consentita.
-- Non e presente un login con password: conserva con cura il link admin.
-- Gli stati di consegna vengono aggiornati su richiesta dalla cabina admin interrogando Twilio.
-
-## Struttura del progetto
+## Struttura
 
 ```text
-secret-santa-club-netlify/
-|-- netlify.toml
-|-- netlify/functions/
-|   |-- api.mjs
-|   `-- media.mjs
-|-- src/
-|   |-- api-app.mjs
-|   |-- domain.mjs
-|   |-- repository.mjs
-|   `-- twilio-whatsapp.mjs
-|-- public/
-|   |-- index.html
-|   |-- admin.html
-|   |-- participant.html
-|   |-- dashboard.html
-|   |-- css/
-|   |-- js/
-|   `-- assets/
-|-- tests/
-|-- scripts/
-|-- docs/
-`-- mockups/
+public/                 frontend statico
+netlify/functions/      Functions API e media
+src/                    dominio, repository e handler API
+scripts/                build check e reset locale
+tests/                  test automatici
+docs/                   guida e architettura
+mockups/                mockup di riferimento
 ```
 
-## Test inclusi
+## Privacy
 
-```bash
-npm test
-```
+- i token admin e partecipante sono casuali e non vengono mostrati nella dashboard comune;
+- gli abbinamenti non vengono restituiti dalle API pubbliche;
+- i numeri WhatsApp sono visibili soltanto nella cabina admin;
+- nessuna credenziale WhatsApp viene richiesta o conservata;
+- il link admin deve essere trattato come una password.
 
-I test verificano, tra le altre cose:
-
-- sorteggio senza auto-abbinamenti;
-- admin partecipante opzionale;
-- numeri obbligatori per il flusso automatico;
-- costruzione della richiesta Twilio con `ContentSid` e variabili;
-- blocco dei reinvii accidentali e dei doppi clic concorrenti;
-- aggiornamento dello stato del messaggio;
-- mancata esposizione dei segreti Twilio al frontend;
-- privacy delle API pubbliche;
-- caricamento foto e rivelazione privata;
-- persistenza concorrente tramite ETag;
-- route e configurazione Netlify.
+Consulta [`docs/GUIDA-PUBBLICAZIONE-NETLIFY.md`](docs/GUIDA-PUBBLICAZIONE-NETLIFY.md) per l'aggiornamento passo-passo.

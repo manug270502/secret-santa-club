@@ -1,9 +1,9 @@
 {
   "name": "secret-santa-club-netlify",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "description": "Secret Santa natalizio con Netlify Functions, Netlify Blobs e inviti WhatsApp precompilati.",
+  "description": "Secret Santa natalizio per Netlify con admin partecipante opzionale, UI mobile e inviti WhatsApp automatici via Twilio.",
   "scripts": {
     "dev": "node server-local.mjs",
     "start": "node server-local.mjs",

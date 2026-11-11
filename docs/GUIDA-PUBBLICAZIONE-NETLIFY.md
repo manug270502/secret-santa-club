@@ -1,184 +1,174 @@
-# Guida passo-passo: pubblicare Secret Santa Club su Netlify
+# Aggiornare e pubblicare Secret Santa Club su Netlify
 
-## 1. Preparazione sul computer
+Questa versione e pensata anche per un sito gia collegato a GitHub e Netlify.
 
-Installa Node.js 22.13 o superiore, estrai il pacchetto e apri la cartella in Visual Studio Code.
+## 1. Fai una copia di sicurezza
 
-Nel terminale esegui:
+Prima di sostituire i file, duplica la cartella locale del progetto oppure crea un branch Git:
+
+```bash
+git checkout -b backup-prima-twilio
+git checkout main
+```
+
+Non cancellare la cartella nascosta `.git` del repository esistente.
+
+## 2. Sostituisci i file del progetto
+
+Estrai il nuovo pacchetto e copia il contenuto della cartella `secret-santa-club-netlify` dentro la cartella del repository live. Accetta la sostituzione dei file omonimi.
+
+Non copiare eventuali cartelle temporanee come `.local-data` o `node_modules`.
+
+Gli store Netlify Blobs mantengono i nomi precedenti, quindi il deploy aggiornato continua a leggere eventi e foto gia salvati.
+
+## 3. Verifica in locale
+
+Nel terminale di Visual Studio Code:
 
 ```bash
 npm run check
 npm start
 ```
 
-Apri `http://localhost:3000` e crea una festa di prova. Questo avvio leggero non richiede `npm install` e salva i dati nella cartella `.local-data`.
+Apri:
 
-Per emulare anche Netlify Functions e Netlify Blobs in locale, facoltativamente esegui:
-
-```bash
-npm install
-npm run netlify:dev
+```text
+http://localhost:3000
 ```
 
-In questo secondo caso Netlify Dev mostra normalmente `http://localhost:8888`.
+Controlla almeno:
 
-## 2. Creazione del repository GitHub
+- il toggle **Parteciperai anche tu?**;
+- la comparsa/scomparsa di nome e numero admin;
+- il form partecipanti su una finestra stretta;
+- la cabina admin su mobile;
+- pagina partecipante e dashboard.
 
-### Metodo grafico
+I dati locali sono separati da quelli online.
 
-1. Accedi a GitHub.
-2. Crea un nuovo repository, per esempio `secret-santa-club`.
-3. Non aggiungere README o `.gitignore` dal sito: sono già presenti nel pacchetto.
-4. Carica tutti i file della cartella oppure usa GitHub Desktop.
+## 4. Pubblica tramite GitHub
 
-### Metodo da terminale
-
-Dopo aver creato il repository vuoto su GitHub:
+Nel repository gia configurato:
 
 ```bash
-git init
+git status
 git add .
-git commit -m "Prima versione Secret Santa Netlify"
-git branch -M main
-git remote add origin https://github.com/manug270502/secret-santa-club
-git push -u origin main
-```
-
-Non caricare mai file `.env` con credenziali. Il file `.gitignore` li esclude già.
-
-## 3. Collegamento a Netlify
-
-1. Accedi a Netlify.
-2. Seleziona **Add new project**.
-3. Scegli **Import an existing project**.
-4. Seleziona GitHub e autorizza l'accesso al repository.
-5. Scegli `secret-santa-club`.
-6. Netlify leggerà automaticamente `netlify.toml`.
-7. Controlla che compaiano:
-   - build command: `npm run build`;
-   - publish directory: `public`;
-   - functions directory: `netlify/functions`.
-8. Premi **Deploy**.
-
-Non servono variabili ambiente per il primo deploy.
-
-## 4. Primo utilizzo online
-
-Al termine del deploy Netlify assegna un URL HTTPS, per esempio:
-
-```text
-https://nome-casuale.netlify.app
-```
-
-Aprilo e crea la festa. Dopo il sorteggio si apre la cabina di regia.
-
-Conserva il link admin in un posto sicuro. Non pubblicarlo nella chat del gruppo.
-
-## 5. Inviti WhatsApp
-
-Per ogni partecipante:
-
-1. inserisci il numero con prefisso, per esempio `+39 333 123 4567`;
-2. premi **Apri WhatsApp**;
-3. si apre direttamente la chat con il messaggio già compilato;
-4. controlla il destinatario;
-5. premi **Invia** in WhatsApp.
-
-Il pulsante **Apri il prossimo** seleziona il primo partecipante per cui WhatsApp non è ancora stato aperto su quel browser.
-
-Se non inserisci il numero, il sito apre WhatsApp con il testo pronto e ti lascia scegliere il contatto. In nessun caso devi copiare manualmente il link.
-
-Il sito non può sapere con certezza se hai premuto **Invia** dentro WhatsApp. Per questo mostra “WhatsApp aperto”, non “messaggio consegnato”.
-
-## 6. Scegliere un nome più bello
-
-In Netlify apri:
-
-```text
-Project configuration > General > Project details > Change project name
-```
-
-Puoi ottenere, se disponibile, un URL come:
-
-```text
-https://il-nostro-secret-santa.netlify.app
-```
-
-Dopo il cambio, apri la cabina di regia dal nuovo dominio prima di usare i pulsanti WhatsApp, così i link generati useranno il nuovo indirizzo.
-
-## 7. Dominio personalizzato facoltativo
-
-Puoi collegare un dominio da:
-
-```text
-Domain management > Add a domain
-```
-
-Netlify gestisce automaticamente HTTPS. Normalmente non serve impostare `PUBLIC_BASE_URL`, perché l'app usa il dominio della richiesta corrente.
-
-Impostalo solo se vuoi forzare un indirizzo preciso:
-
-```dotenv
-PUBLIC_BASE_URL=https://secret-santa.tuodominio.it
-```
-
-## 8. Dove sono salvati dati e foto
-
-Nel progetto Netlify apri:
-
-```text
-Data & Storage > Blobs
-```
-
-Troverai due store:
-
-```text
-secret-santa-data-v2
-secret-santa-media-v2
-```
-
-Il primo contiene eventi, token e abbinamenti. Il secondo contiene le foto. I nuovi deploy non cancellano questi store.
-
-Non modificare manualmente i Blob mentre una festa è in corso.
-
-## 9. Aggiornare il sito
-
-Modifica i file in Visual Studio Code, poi:
-
-```bash
-git add .
-git commit -m "Descrizione della modifica"
+git commit -m "Mobile, admin partecipante e inviti WhatsApp Twilio"
 git push
 ```
 
-Netlify avvierà automaticamente un nuovo deploy. I dati già salvati nei Blob restano disponibili.
+Non serve eseguire di nuovo `git init` o `git remote add origin`.
 
-## 10. Risoluzione rapida dei problemi
-
-### Il deploy fallisce per la versione Node
-
-Controlla che Netlify usi Node 22. Il progetto include `.nvmrc` e `NODE_VERSION = "22"`.
-
-### Il pulsante WhatsApp apre il contatto sbagliato
-
-Inserisci il numero nel formato internazionale, senza doppioni:
+Netlify rilevera il push e avviera automaticamente il deploy con:
 
 ```text
-+39 333 123 4567
+Build command: npm run build
+Publish directory: public
+Functions directory: netlify/functions
+Node: 22
 ```
 
-### La foto è troppo grande
+## 5. Verifica il deploy prima di Twilio
 
-Il browser prova a comprimerla automaticamente. In caso di errore, scatta la foto direttamente dal sito oppure scegli un'immagine più leggera.
+Apri il dominio `https://...netlify.app` e controlla che:
 
-### La fotocamera non parte
+- la homepage carichi senza errori;
+- la creazione evento funzioni;
+- il nuovo admin partecipante venga mostrato con il badge Admin;
+- la dashboard comune non mostri abbinamenti;
+- la cabina admin mostri il riquadro di configurazione Twilio.
 
-Controlla i permessi del browser. Online il sito è già in HTTPS, requisito necessario per l'accesso alla fotocamera.
+Senza variabili Twilio, la pagina segnala che l'automazione non e ancora attiva. Questo e previsto.
 
-### Vedo la festa in locale ma non online
+## 6. Configura Twilio
 
-Gli ambienti locali usano archivi separati dalla produzione. Le feste create su `localhost` non vengono copiate in produzione: crea la festa definitiva dal dominio `netlify.app`.
+Segui integralmente:
+
+```text
+docs/CONFIGURAZIONE-TWILIO-WHATSAPP.md
+```
+
+In sintesi servono:
+
+```dotenv
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_API_KEY=SK...
+TWILIO_API_SECRET=...
+TWILIO_MESSAGING_SERVICE_SID=MG...
+TWILIO_CONTENT_SID=HX...
+TWILIO_ALLOW_FREEFORM=false
+```
+
+Puoi sostituire `TWILIO_MESSAGING_SERVICE_SID` con `TWILIO_WHATSAPP_FROM` e API Key/API Secret con `TWILIO_AUTH_TOKEN`, ma la configurazione sopra e quella consigliata.
+
+## 7. Imposta le variabili in Netlify
+
+Usa la dashboard Netlify, non `netlify.toml` e non GitHub.
+
+Rendi le variabili disponibili alle Functions e al contesto Production. Dopo il salvataggio esegui un nuovo deploy affinche le Functions usino la configurazione aggiornata.
+
+Apri `/api/system` soltanto per una verifica tecnica: deve indicare `whatsappAutomation.configured: true`, senza mostrare alcun segreto.
+
+## 8. Crea o aggiorna l'evento
+
+Per i nuovi eventi tutti i numeri WhatsApp sono obbligatori. L'admin sceglie:
+
+- toggle attivo: entra nel sorteggio, inserisce nome e numero e riceve il proprio link;
+- toggle disattivo: resta solo organizzatore e non appare tra i partecipanti.
+
+Gli eventi creati con la versione precedente restano accessibili. Se un vecchio partecipante non ha numero o il numero e errato, usa il pulsante con la matita nella sua riga: il nuovo numero viene salvato e lo stato dell'invito torna a **Da inviare**.
+
+## 9. Invia gli inviti
+
+Nella cabina admin:
+
+- **Invia tutti** spedisce in sequenza tutti gli inviti non ancora inviati;
+- **Invia ora** spedisce una singola riga;
+- **Reinvia** richiede conferma per evitare duplicati;
+- **Aggiorna consegne** interroga Twilio per gli stati correnti;
+- **Backup link** copia i link personali come soluzione di emergenza.
+
+Quando Twilio e attivo, non viene aperta alcuna finestra WhatsApp.
+
+## 10. Aggiornamenti successivi
+
+Dopo ogni modifica:
+
+```bash
+npm run check
+git add .
+git commit -m "Descrizione modifica"
+git push
+```
+
+Eventi e foto restano nei Netlify Blobs tra un deploy e l'altro.
+
+## 11. Risoluzione rapida
+
+### Il deploy fallisce
+
+Apri il log Netlify e verifica Node 22, `npm run build` e l'installazione di `@netlify/blobs`.
+
+### La pagina dice che Twilio non e configurato
+
+Controlla i nomi esatti delle variabili, il contesto Production, lo scope Functions e avvia un nuovo deploy.
+
+### Il template viene rifiutato
+
+Usa un testo chiaro, campioni realistici e categoria coerente. Un invito a un evento viene normalmente trattato come Marketing, non come Utility.
+
+### Il messaggio fallisce
+
+Premi **Aggiorna consegne**, apri i Messaging Logs Twilio e verifica sender, Content SID, opt-in e formato E.164.
+
+### La foto non parte da mobile
+
+Controlla il permesso fotocamera e prova da HTTPS sul dominio Netlify, non da un indirizzo HTTP della rete locale.
+
+### Vedo dati diversi tra locale e online
+
+E corretto: `.local-data` e Netlify Blobs sono archivi separati.
 
 ### Ho perso il link admin
 
-Non esiste un elenco pubblico degli eventi, proprio per proteggere gli abbinamenti. Recupera il link dalla cronologia del browser o dai tuoi appunti.
+Recuperalo dalla cronologia o dai tuoi appunti. Non esiste un elenco pubblico degli eventi per proteggere gli abbinamenti.

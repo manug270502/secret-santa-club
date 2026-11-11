@@ -7,6 +7,26 @@ import { createApiHandler, createMediaHandler } from './src/api-app.mjs';
 import { FileBlobStore } from './src/file-blob-store.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+function loadLocalEnv(filePath = path.join(ROOT, '.env')) {
+  if (!fs.existsSync(filePath)) return;
+  const rows = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  for (const row of rows) {
+    const line = row.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separator = line.indexOf('=');
+    if (separator < 1) continue;
+    const key = line.slice(0, separator).trim();
+    let value = line.slice(separator + 1).trim();
+    if ((value.startsWith('\"') && value.endsWith('\"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
+loadLocalEnv();
+
 const PUBLIC = path.join(ROOT, 'public');
 const LOCAL_DATA = path.join(ROOT, '.local-data');
 const port = Number(process.env.PORT || 3000);

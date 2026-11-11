@@ -6,9 +6,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = qs('#eventForm');
   const createButton = qs('#createButton');
   const demoButton = qs('#demoButton');
+  const organizerToggle = qs('#organizerParticipates');
+  const organizerFields = qs('#organizerParticipantFields');
   let participants = [];
 
   const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  const minimumExternalParticipants = () => (organizerToggle.checked ? 2 : 3);
+
+  function updateCount() {
+    const total = participants.length + (organizerToggle.checked ? 1 : 0);
+    count.textContent = `${total} ${total === 1 ? 'elfo totale' : 'elfi totali'}`;
+  }
 
   function addParticipant(name = '', phone = '') {
     participants.push({ id: makeId(), name, phone });
@@ -17,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderParticipants() {
     rows.replaceChildren();
+    const minimum = minimumExternalParticipants();
     participants.forEach((participant, index) => {
       const row = document.createElement('div');
       row.className = 'participant-row';
@@ -26,39 +35,64 @@ document.addEventListener('DOMContentLoaded', () => {
       number.className = 'row-number';
       number.textContent = String(index + 1).padStart(2, '0');
 
+      const nameWrap = document.createElement('label');
+      nameWrap.className = 'participant-input participant-name-input';
+      const nameLabel = document.createElement('span');
+      nameLabel.textContent = 'Nome';
       const name = document.createElement('input');
       name.type = 'text';
       name.maxLength = 60;
       name.required = true;
       name.placeholder = 'Nome e cognome';
       name.value = participant.name;
+      name.autocomplete = 'off';
       name.setAttribute('aria-label', `Nome partecipante ${index + 1}`);
       name.addEventListener('input', () => { participant.name = name.value; });
+      nameWrap.append(nameLabel, name);
 
+      const phoneWrap = document.createElement('label');
+      phoneWrap.className = 'participant-input participant-phone-input';
+      const phoneLabel = document.createElement('span');
+      phoneLabel.textContent = 'WhatsApp';
       const phone = document.createElement('input');
       phone.type = 'tel';
       phone.maxLength = 30;
-      phone.placeholder = '+39 333 123 4567 (opz.)';
+      phone.required = true;
+      phone.placeholder = '+39 333 123 4567';
       phone.value = participant.phone;
+      phone.autocomplete = 'off';
       phone.className = 'participant-phone';
-      phone.setAttribute('aria-label', `Telefono partecipante ${index + 1}`);
+      phone.setAttribute('aria-label', `Telefono WhatsApp partecipante ${index + 1}`);
       phone.addEventListener('input', () => { participant.phone = phone.value; });
+      phoneWrap.append(phoneLabel, phone);
 
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'remove-row';
       remove.textContent = '×';
       remove.title = `Rimuovi ${participant.name || `partecipante ${index + 1}`}`;
-      remove.disabled = participants.length <= 3;
+      remove.setAttribute('aria-label', remove.title);
+      remove.disabled = participants.length <= minimum;
       remove.addEventListener('click', () => {
         participants = participants.filter((item) => item.id !== participant.id);
         renderParticipants();
       });
 
-      row.append(number, name, phone, remove);
+      row.append(number, nameWrap, phoneWrap, remove);
       rows.appendChild(row);
     });
-    count.textContent = `${participants.length} ${participants.length === 1 ? 'elfo' : 'elfi'}`;
+    updateCount();
+  }
+
+  function updateOrganizerChoice() {
+    const participates = organizerToggle.checked;
+    organizerFields.hidden = !participates;
+    form.elements.organizerName.required = participates;
+    form.elements.organizerPhone.required = participates;
+    while (participants.length < minimumExternalParticipants()) {
+      participants.push({ id: makeId(), name: '', phone: '' });
+    }
+    renderParticipants();
   }
 
   function setDefaultDate() {
@@ -75,19 +109,34 @@ document.addEventListener('DOMContentLoaded', () => {
     rows.lastElementChild?.querySelector('input')?.focus();
   });
 
+  organizerToggle.addEventListener('change', updateOrganizerChoice);
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      toast('Completa i campi obbligatori.', 'error');
+      return;
+    }
+
     const validParticipants = participants.map((item) => ({
       name: item.name.trim(),
       phone: item.phone.trim(),
     }));
-    if (validParticipants.some((item) => !item.name)) {
-      toast('Inserisci il nome di tutti i partecipanti.', 'error');
-      rows.querySelector('input:invalid, input[value=""]')?.focus();
+    if (validParticipants.some((item) => !item.name || !item.phone)) {
+      toast('Inserisci nome e numero WhatsApp di tutti i partecipanti.', 'error');
       return;
     }
+
+    const allNames = validParticipants.map((item) => item.name.toLocaleLowerCase('it-IT'));
+    if (organizerToggle.checked) allNames.push(form.elements.organizerName.value.trim().toLocaleLowerCase('it-IT'));
+    if (new Set(allNames).size !== allNames.length) {
+      toast('Ogni partecipante deve avere un nome diverso.', 'error');
+      return;
+    }
+
     if (!qs('#privacyCheck').checked) {
-      toast('Conferma l’uso dei dati per la festa privata.', 'error');
+      toast('Conferma il consenso per la festa e gli inviti WhatsApp.', 'error');
       return;
     }
 
@@ -96,9 +145,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const payload = {
         name: form.elements.name.value,
-        organizer: form.elements.organizer.value,
+        organizerParticipates: organizerToggle.checked,
+        organizerName: organizerToggle.checked ? form.elements.organizerName.value : '',
+        organizerPhone: organizerToggle.checked ? form.elements.organizerPhone.value : '',
         date: form.elements.date.value,
         location: form.elements.location.value,
+        requirePhones: true,
         participants: validParticipants,
       };
       const result = await api('/api/events', { method: 'POST', body: payload });
@@ -128,5 +180,6 @@ document.addEventListener('DOMContentLoaded', () => {
     .catch(() => {});
 
   setDefaultDate();
-  ['Martina', 'Luca', 'Giulia', 'Marco'].forEach((name) => addParticipant(name));
+  for (let index = 0; index < minimumExternalParticipants(); index += 1) addParticipant();
+  updateOrganizerChoice();
 });

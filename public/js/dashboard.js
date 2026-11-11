@@ -73,7 +73,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const status = document.createElement('span');
       status.className = 'person-status';
       status.textContent = participant.revealed ? '✓ PACCHETTO APERTO' : participant.photoUrl ? 'PROFILO PRONTO' : 'IN ATTESA';
-      card.append(mood, avatar, name, status);
+      card.append(mood, avatar, name);
+      if (participant.isOrganizer) {
+        const organizerBadge = document.createElement('span');
+        organizerBadge.className = 'person-organizer-badge';
+        organizerBadge.textContent = 'ORGANIZZATORE';
+        card.appendChild(organizerBadge);
+      }
+      card.appendChild(status);
       if (participant.wish) {
         const wish = document.createElement('p');
         wish.className = 'person-wish';

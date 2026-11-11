@@ -1,24 +1,33 @@
-SECRET SANTA CLUB NETLIFY - INIZIA DA QUI
+SECRET SANTA CLUB NETLIFY + TWILIO - INIZIA DA QUI
 
-AVVIO LOCALE
-1. Installa Node.js 22.13 o superiore: https://nodejs.org
-2. Apri questa cartella in Visual Studio Code.
-3. Apri il terminale integrato.
-4. Esegui: npm start
-5. Apri: http://localhost:3000
+1) PROVA LOCALE
+- Apri questa cartella in Visual Studio Code.
+- Richiede Node.js 22.13 o superiore.
+- Nel terminale esegui: npm start
+- Apri: http://localhost:3000
+- Controlli completi: npm run check
 
-Facoltativo, per emulare Netlify: npm install e poi npm run netlify:dev
+2) AGGIORNA IL SITO GIA ONLINE
+Copia questi file nel repository gia collegato a Netlify, senza cancellare .git, poi:
 
-PUBBLICAZIONE HTTPS GRATUITA
-1. Carica questa cartella in un repository GitHub.
-2. Entra su https://app.netlify.com
-3. Add new project > Import an existing project > GitHub.
-4. Seleziona il repository e premi Deploy.
-5. Non devi impostare un database o chiavi API.
+git add .
+git commit -m "Mobile, admin partecipante e inviti Twilio"
+git push
 
-WHATSAPP
-Nell'area admin premi "Apri WhatsApp" accanto a ogni nome.
-Chat, testo e link personale sono già compilati: dentro WhatsApp conferma soltanto "Invia".
+Netlify pubblichera automaticamente il nuovo deploy. I Blob esistenti restano invariati.
+
+3) CONFIGURA TWILIO
+Apri prima:
+docs/CONFIGURAZIONE-TWILIO-WHATSAPP.md
+
+Servono un sender WhatsApp Twilio, un template approvato e le variabili ambiente Netlify. Le credenziali non vanno inserite nel codice o su GitHub.
+
+4) COSA CAMBIA
+- Mobile ottimizzato.
+- Flag "Parteciperai anche tu?".
+- Admin incluso nel sorteggio solo quando richiesto.
+- Pulsante "Invia tutti" per spedire automaticamente gli inviti via Twilio.
+- Stato inviato/consegnato/letto/fallito nella cabina admin.
 
 GUIDA COMPLETA
-Apri docs/GUIDA-PUBBLICAZIONE-NETLIFY.md oppure README.md.
+docs/GUIDA-PUBBLICAZIONE-NETLIFY.md

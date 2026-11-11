@@ -44,24 +44,28 @@
       <div class="admin-main-column">
         <article class="panel share-panel">
           <div class="panel-heading">
-            <div><span class="panel-kicker">PASSO 1</span><h2>Invia gli inviti personali</h2><p>Premi WhatsApp: chat, testo e link personale saranno già pronti. Dentro WhatsApp dovrai solo confermare <b>Invia</b>.</p></div>
+            <div><span class="panel-kicker">PASSO 1</span><h2>Invia gli inviti personali</h2><p>Con Twilio configurato, il sito invia direttamente su WhatsApp: non apre chat e non richiede copia-incolla.</p></div>
             <div class="panel-heading-actions">
-              <button class="button button-primary button-small" id="openNextWhatsApp" type="button">Apri il prossimo</button>
-              <button class="button button-secondary button-small" id="copyAllButton" type="button">Backup link</button>
+              <button class="button button-primary button-small" id="sendAllInvites" type="button">Invia tutti</button>
+              <button class="button button-secondary button-small" id="refreshInviteStatuses" type="button">Aggiorna consegne</button>
+              <button class="button button-ghost button-small" id="copyAllButton" type="button">Backup link</button>
             </div>
           </div>
 
           <div class="share-base-box">
-            <label for="shareBase">Indirizzo base da condividere</label>
+            <label for="shareBase">Dominio HTTPS usato nei link</label>
             <div class="input-action-row">
-              <input id="shareBase" type="url" list="baseSuggestions" spellcheck="false">
+              <input id="shareBase" type="url" list="baseSuggestions" spellcheck="false" readonly>
               <button class="icon-button" id="refreshBase" type="button" title="Usa l'indirizzo corrente">↻</button>
             </div>
             <datalist id="baseSuggestions"></datalist>
-            <small id="baseHint">Su Netlify usa l’indirizzo HTTPS mostrato qui. Puoi cambiarlo solo se colleghi un dominio personalizzato.</small>
+            <small id="baseHint">Gli invii automatici usano il dominio corrente del sito o PUBLIC_BASE_URL. Il campo è solo informativo.</small>
           </div>
 
-          <div class="whatsapp-flow-note"><span>💡</span><p><b>Nessun copia-incolla:</b> il messaggio contiene automaticamente il link corretto della persona. Il sito non può premere “Invia” al posto tuo dentro WhatsApp.</p></div>
+          <div class="automation-status" id="automationStatus" role="status">
+            <span class="automation-status-icon">⏳</span>
+            <div><strong>Controllo Twilio…</strong><p>Verifico se l’invio automatico è configurato.</p></div>
+          </div>
 
           <div class="participant-share-list" id="participantShareList"></div>
         </article>
@@ -112,7 +116,7 @@
       <button class="modal-close" value="cancel" aria-label="Chiudi">×</button>
       <span class="eyebrow">Dettagli evento</span><h2>Aggiorna la festa</h2>
       <label class="field"><span>Nome</span><input name="name" maxlength="80" required></label>
-      <label class="field"><span>Organizzatore</span><input name="organizer" maxlength="60" required></label>
+      <label class="field"><span>Nome admin visualizzato</span><input name="organizer" maxlength="60" required></label>
       <div class="form-grid two-columns">
         <label class="field"><span>Data</span><input name="date" type="date"></label>
         <label class="field"><span>Luogo</span><input name="location" maxlength="100"></label>

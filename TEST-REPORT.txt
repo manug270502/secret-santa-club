@@ -1,0 +1,33 @@
+SECRET SANTA CLUB v3 - VERIFICHE ESEGUITE
+
+Comando finale:
+  npm run check
+
+Risultato:
+  - build-check superato
+  - sintassi verificata per 13 file JavaScript
+  - 10 test automatici superati
+
+Copertura principale:
+  - sorteggio senza auto-abbinamenti
+  - privacy delle API pubbliche
+  - caricamento e restituzione foto
+  - rivelazione privata
+  - concorrenza ETag sui messaggi
+  - admin partecipante opzionale
+  - numeri obbligatori nel flusso automatico
+  - richiesta Twilio con ContentSid e ContentVariables
+  - MessageIntent=events
+  - nessuna esposizione dei segreti Twilio al browser
+  - invio, reinvio e aggiornamento stato
+  - correzione numero e reset stato invito
+  - blocco di due invii simultanei
+  - presenza degli override responsive principali
+  - route statiche e API del server locale
+
+Verifiche non eseguite:
+  - invio reale su un account Twilio dell'utente
+  - approvazione reale del template da parte di Meta
+  - deploy nel progetto Netlify dell'utente
+
+Queste ultime verifiche richiedono le credenziali e gli account personali e sono descritte nelle guide incluse.

@@ -1,5 +1,5 @@
-SECRET SANTA CLUB NETLIFY FREE v6.0 - RAPPORTO TEST
-===================================================
+SECRET SANTA CLUB NETLIFY FREE v6.2.0 - RAPPORTO TEST
+=====================================================
 
 Comando:
 npm run check
@@ -8,7 +8,8 @@ Controlli statici:
 - struttura Netlify e route private;
 - sintassi dei file JavaScript;
 - CSP senza script inline;
-- asset CSS/JS versionati;
+- asset CSS/JS con versione uguale al package;
+- riferimenti DOM del Control Center;
 - variabili super-admin documentate;
 - assenza di persistenza locale incompatibile con Netlify.
 
@@ -25,12 +26,17 @@ Test automatici applicativi:
 - catalogo e ricerca delle stanze esistenti;
 - modifica dettagli e policy;
 - blocco, conclusione, cestino e ripristino;
-- cancellazione definitiva con conferma;
+- conferma legata a ID, nome e versione della stanza;
+- impossibilita di usare una conferma di una stanza su un'altra;
+- token firmato e temporaneo per il purge;
+- backup verificato del record e delle fotografie;
+- ripristino automatico dopo un errore a meta cancellazione;
+- pulizia delle sole voci orfane del catalogo;
 - manutenzione globale e interruttori del sito;
-- audit log e ricostruzione indice.
+- audit log, ricostruzione indice, esportazione e duplicazione.
 
-Risultato previsto:
-18 test superati, 0 falliti.
+Risultato:
+22 test superati, 0 falliti.
 
-Nota QA visuale:
-la struttura HTML/CSS e i riferimenti DOM del Control Center sono stati verificati staticamente. Nel container di sviluppo Chromium è soggetto a una policy di sistema che blocca la navigazione, quindi la verifica finale del rendering reale deve essere eseguita dopo il deploy sul browser desktop/mobile dell'utente.
+Nota QA:
+la suite verifica anche un purge interrotto artificialmente e controlla che evento, indici, catalogo e foto vengano ripristinati. Il deploy reale deve comunque essere verificato su Netlify controllando `/api/health` e una stanza di prova prima di operare su eventi reali.

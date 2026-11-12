@@ -1,4 +1,4 @@
-# Architettura Netlify Free v6
+# Architettura Netlify Free v6.2
 
 ## Componenti
 
@@ -6,8 +6,8 @@
 - `netlify/functions/api.mjs`: API serverless e riuso dell'handler nelle istanze calde;
 - `netlify/functions/media.mjs`: foto con lettura eventuale e cache immutabile;
 - `src/domain.mjs`: validazione, sorteggio, lifecycle, policy e normalizzazione;
-- `src/repository.mjs`: ETag, indici, catalogo, audit e persistenza;
-- `src/super-admin-auth.mjs`: hash password, sessioni firmate, cookie e CSRF;
+- `src/repository.mjs`: ETag, indici, catalogo, audit, backup e persistenza;
+- `src/super-admin-auth.mjs`: hash password, sessioni firmate, cookie, CSRF e token HMAC per azioni critiche;
 - `src/api-app.mjs`: route, autorizzazione, privacy e risposte;
 - `src/file-blob-store.mjs`: storage locale compatibile con l'interfaccia Blob.
 
@@ -20,7 +20,7 @@ secret-santa-data-v2
 secret-santa-media-v2
 ```
 
-Il primo contiene eventi, indici, catalogo, impostazioni, audit e throttle login. Il secondo contiene le immagini.
+Il primo contiene eventi, indici, catalogo, impostazioni, audit, throttle login e backup di sicurezza. Il secondo contiene le immagini attive.
 
 ## Schema evento
 
@@ -36,9 +36,10 @@ Gli eventi nuovi usano `schemaVersion: 6` e includono:
 
 `ensureEventManagementFields()` aggiunge i campi mancanti agli eventi precedenti senza cambiare abbinamenti, token, foto o messaggi.
 
-## Indici
+## Chiavi principali
 
 ```text
+event/<eventId>
 index/admin/<token>
 index/public/<token>
 index/participant/<token>
@@ -47,6 +48,8 @@ system/event-catalog-v1
 system/settings-v1
 audit/<timestamp>-<token>
 security/login/<hash-ip>
+backup/deleted/<eventId>/<backupId>
+backup/deleted/<eventId>/<backupId>/media/<photoToken>
 ```
 
 L'indice telefonico contiene un riepilogo sufficiente per la pagina di recupero, evitando di caricare ogni evento in sequenza. Il catalogo contiene statistiche e testo di ricerca; i telefoni in chiaro non vengono restituiti dall'API riepilogativa.
@@ -57,27 +60,31 @@ Eventi, indici, catalogo, impostazioni e throttle usano lettura con ETag e scrit
 
 ## Super-admin
 
-### Credenziali
+### Credenziali e sessione
 
-La configurazione arriva esclusivamente da variabili ambiente. La password è rappresentata da un hash scrypt. La sessione contiene soltanto username, scadenza, ID e token CSRF; è firmata con HMAC SHA-256.
+La configurazione arriva esclusivamente da variabili ambiente. La password è rappresentata da un hash scrypt. La sessione contiene username, scadenza, ID sessione e token CSRF; è firmata con HMAC SHA-256.
 
 ### Autorizzazione
 
 - login pubblico con throttle persistente;
 - cookie di sessione `HttpOnly`, `SameSite=Strict`, `Secure` in HTTPS;
 - ogni mutazione richiede sessione valida e `X-CSRF-Token`;
+- le mutazioni di stato verificano ID, nome e `updatedAt`;
+- il purge richiede un token HMAC temporaneo legato a sessione, azione, evento, nome e versione;
 - le esportazioni richiedono sessione ma sono operazioni in sola lettura;
 - audit separato dagli eventi, così resta disponibile dopo la cancellazione definitiva.
 
+### Protezione frontend
+
+Quando viene aperta una stanza, il browser conserva uno snapshot limitato a quella finestra. Le richieste precedenti vengono annullate tramite `AbortController`, le risposte fuori ordine vengono ignorate e la chiusura del dialog cancella la selezione. Prima di ogni operazione il dataset del dialog deve corrispondere allo snapshot.
+
 ### Lifecycle
 
-Lo stato viene controllato sia nelle route sia nel frontend:
-
 - `active`: lettura e scrittura normali;
-- `blocked`: accesso pubblico/partecipante negato, admin normale in sola lettura;
+- `blocked`: accesso pubblico e partecipante negato, admin normale in sola lettura;
 - `completed`: lettura consentita, mutazioni negate;
 - `archived`: accesso soltanto super-admin;
-- `trashed`: accesso soltanto super-admin e possibilità di ripristino/eliminazione.
+- `trashed`: accesso soltanto super-admin e possibilità di ripristino o purge.
 
 ## Privacy delle risposte
 
@@ -85,7 +92,7 @@ La dashboard pubblica non restituisce telefoni, token, codici, stato inviti o ab
 
 ## Cache e consistenza
 
-- mutazioni ed accessi privati: consistenza forte e `no-store`;
+- mutazioni e accessi privati: consistenza forte e `no-store`;
 - dashboard pubblica: lettura eventuale con fallback forte e cache CDN breve;
 - foto: consistenza eventuale, URL immutabile e cache di un anno;
 - impostazioni globali: cache in memoria di 5 secondi nelle istanze calde;
@@ -103,14 +110,21 @@ Questo riduce la latenza senza memorizzare risposte contenenti token o dati sens
 - `content-visibility` sulle sezioni più lunghe;
 - asset versionati per sfruttare la cache del browser.
 
-## Cancellazione
+## Cancellazione protetta
 
-Il passaggio al cestino non cancella dati. La cancellazione definitiva rimuove:
+Il passaggio al cestino non cancella dati. La cancellazione definitiva segue una transazione applicativa protetta:
 
-- evento;
-- indici admin/pubblico/partecipanti;
-- riferimenti telefonici;
-- foto;
-- voce catalogo.
+1. verifica che la stanza sia ancora nel cestino;
+2. confronta ID, nome e `updatedAt` con lo snapshot mostrato al browser;
+3. rilascia un token HMAC temporaneo e legato alla sessione;
+4. crea un manifest di backup con l'intero record evento;
+5. copia e verifica ogni fotografia nel data store di backup;
+6. elimina in sequenza evento, indici, riferimenti telefonici, foto e catalogo;
+7. verifica che il record principale sia scomparso;
+8. in caso di errore ripristina automaticamente evento, indici, catalogo e foto.
 
-L'audit dell'operazione rimane. Il campo `purgeAfter` è informativo: la v6 non esegue cancellazioni automatiche programmate.
+Il backup usa chiavi separate da quelle dell'evento e non viene incluso nell'elenco delle chiavi da cancellare. Il campo `purgeAfter` è informativo: la v6.2 non esegue cancellazioni automatiche programmate.
+
+## Catalogo e voci orfane
+
+Il catalogo è un indice riassuntivo e non è la fonte primaria dell'evento. Se una voce non ha più il record `event/<id>`, l'API la tratta come orfana e consente soltanto di rimuovere quel riepilogo. La pulizia di una voce orfana non richiama `purgeEvent()` e non tocca altri eventi.

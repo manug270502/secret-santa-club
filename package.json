@@ -1,6 +1,6 @@
 {
   "name": "secret-santa-club-netlify",
-  "version": "6.1.2",
+  "version": "6.2.0",
   "private": true,
   "type": "module",
   "description": "Secret Santa per Netlify con Control Center super-admin, gestione stanze, recupero protetto, profili regalo e WhatsApp click-to-chat gratuito.",

@@ -56,7 +56,7 @@ test('flusso completo Netlify: creazione, privacy, foto Blob, reveal e dashboard
   const { dataStore, api, media } = setup();
   const health = await call(api, '/health');
   assert.equal(health.response.status, 200);
-  assert.equal(health.payload.service, 'secret-santa-club-netlify-v6.1.2');
+  assert.equal(health.payload.service, 'secret-santa-club-netlify-v6.2.0');
   assert.equal(health.payload.storage, 'netlify-blobs');
 
   const creation = await createParty(api);
@@ -203,6 +203,13 @@ test('configurazione statica usa Netlify e non contiene invio WhatsApp automatic
   assert.doesNotMatch(adminJs, /twilio/i);
   const legacyStub = fs.readFileSync(path.join(ROOT, 'src/twilio-whatsapp.mjs'), 'utf8');
   assert.doesNotMatch(legacyStub, /api\.twilio\.com|sendInvite|getMessageStatus/);
+
+  const superAdminJs = fs.readFileSync(path.join(ROOT, 'public/js/super-admin.js'), 'utf8');
+  assert.match(superAdminJs, /new AbortController\(\)/);
+  assert.match(superAdminJs, /purge-preview/);
+  assert.match(superAdminJs, /\/api\/super-admin\/orphans\//);
+  assert.match(superAdminJs, /expectedUpdatedAt/);
+  assert.doesNotMatch(superAdminJs, /\/diagnostics/);
 
   assert.match(toml, /from = "\/my-events"/);
 
@@ -653,6 +660,22 @@ function superAdminHeaders(session, extra = {}) {
   };
 }
 
+function eventConfirmation(event) {
+  return {
+    confirmId: event.id,
+    confirmName: event.name,
+    expectedUpdatedAt: event.updatedAt,
+  };
+}
+
+async function setSuperAdminStatus(api, session, event, status, reason = '') {
+  return call(api, `/api/super-admin/events/${event.id}/status`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ status, reason, ...eventConfirmation(event) }),
+  });
+}
+
 test('Control Center: login sicuro, catalogo, dettaglio e protezione CSRF', async () => {
   const { api } = setup(superAdminEnv());
   const creation = await createParty(api);
@@ -713,7 +736,7 @@ test('Control Center: login sicuro, catalogo, dettaglio e protezione CSRF', asyn
 });
 
 test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione definitiva', async () => {
-  const { api } = setup(superAdminEnv());
+  const { api, dataStore } = setup(superAdminEnv());
   const creation = await createParty(api);
   const adminToken = tokenFrom(creation.payload.adminPath);
   const publicToken = tokenFrom(creation.payload.publicPath);
@@ -721,12 +744,11 @@ test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione d
   const participantToken = tokenFrom(admin.payload.event.participants[0].path);
   const session = await loginSuperAdmin(api);
   const eventId = creation.payload.eventId;
-
-  const blocked = await call(api, `/api/super-admin/events/${eventId}/status`, {
-    method: 'POST',
-    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ status: 'blocked', reason: 'Controllo del Grande Elfo' }),
+  const detail = await call(api, `/api/super-admin/events/${eventId}`, {
+    headers: { Cookie: session.cookie },
   });
+
+  const blocked = await setSuperAdminStatus(api, session, detail.payload.event, 'blocked', 'Controllo del Grande Elfo');
   assert.equal(blocked.response.status, 200);
   assert.equal(blocked.payload.event.status, 'blocked');
 
@@ -739,11 +761,7 @@ test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione d
   assert.equal(adminBlocked.response.status, 200);
   assert.equal(adminBlocked.payload.event.readOnly, true);
 
-  const completed = await call(api, `/api/super-admin/events/${eventId}/status`, {
-    method: 'POST',
-    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ status: 'completed' }),
-  });
+  const completed = await setSuperAdminStatus(api, session, blocked.payload.event, 'completed');
   assert.equal(completed.response.status, 200);
   const publicCompleted = await call(api, `/api/public/${publicToken}`);
   assert.equal(publicCompleted.response.status, 200);
@@ -755,11 +773,7 @@ test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione d
   });
   assert.equal(newMessage.response.status, 423);
 
-  const trashed = await call(api, `/api/super-admin/events/${eventId}`, {
-    method: 'DELETE',
-    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ reason: 'Evento duplicato' }),
-  });
+  const trashed = await setSuperAdminStatus(api, session, completed.payload.event, 'trashed', 'Evento duplicato');
   assert.equal(trashed.response.status, 200);
   assert.equal(trashed.payload.event.status, 'trashed');
   assert.ok(trashed.payload.event.purgeAfter);
@@ -773,29 +787,226 @@ test('Control Center: blocco, conclusione, cestino, ripristino ed eliminazione d
 
   const restored = await call(api, `/api/super-admin/events/${eventId}/restore`, {
     method: 'POST',
-    headers: superAdminHeaders(session),
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify(eventConfirmation(trashed.payload.event)),
   });
   assert.equal(restored.response.status, 200);
   assert.equal(restored.payload.event.status, 'completed');
 
-  await call(api, `/api/super-admin/events/${eventId}`, {
+  const trashedAgain = await call(api, `/api/super-admin/events/${eventId}`, {
     method: 'DELETE',
     headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ reason: 'Pulizia finale' }),
+    body: JSON.stringify({ reason: 'Pulizia finale', ...eventConfirmation(restored.payload.event) }),
   });
-  const wrongName = await call(api, `/api/super-admin/events/${eventId}/purge`, {
+  assert.equal(trashedAgain.response.status, 200);
+  assert.equal(trashedAgain.payload.event.status, 'trashed');
+
+  const wrongPreview = await call(api, `/api/super-admin/events/${eventId}/purge-preview`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ...eventConfirmation(trashedAgain.payload.event), confirmName: 'Stanza sbagliata' }),
+  });
+  assert.equal(wrongPreview.response.status, 409);
+
+  const preview = await call(api, `/api/super-admin/events/${eventId}/purge-preview`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify(eventConfirmation(trashedAgain.payload.event)),
+  });
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.payload.event.id, eventId);
+  assert.equal(preview.payload.phrase, `ELIMINA ${eventId}`);
+
+  const wrongPhrase = await call(api, `/api/super-admin/events/${eventId}/purge`, {
     method: 'DELETE',
     headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ confirmId: eventId, confirmPhrase: 'ELIMINA Nome sbagliato' }),
+    body: JSON.stringify({ confirmationToken: preview.payload.confirmationToken, confirmPhrase: 'ELIMINA ALTRO' }),
   });
-  assert.equal(wrongName.response.status, 400);
+  assert.equal(wrongPhrase.response.status, 400);
+
   const purged = await call(api, `/api/super-admin/events/${eventId}/purge`, {
     method: 'DELETE',
     headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ confirmId: eventId, confirmPhrase: 'ELIMINA Natale Test' }),
+    body: JSON.stringify({
+      confirmationToken: preview.payload.confirmationToken,
+      confirmPhrase: preview.payload.phrase,
+    }),
   });
   assert.equal(purged.response.status, 200);
+  assert.match(purged.payload.backup.key, new RegExp(`^backup/deleted/${eventId}/`));
+  assert.ok(dataStore.keys().includes(purged.payload.backup.key));
   assert.equal((await call(api, `/api/admin/${adminToken}`)).response.status, 404);
+});
+
+test('Control Center: una conferma appartenente a una stanza non può modificare o eliminare un’altra stanza', async () => {
+  const { api } = setup(superAdminEnv());
+  const first = await createParty(api);
+  const second = await createParty(api);
+  const session = await loginSuperAdmin(api);
+  const firstDetail = await call(api, `/api/super-admin/events/${first.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  const secondDetail = await call(api, `/api/super-admin/events/${second.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+
+  const wrongStatus = await call(api, `/api/super-admin/events/${second.payload.eventId}/status`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      status: 'trashed',
+      ...eventConfirmation(firstDetail.payload.event),
+    }),
+  });
+  assert.equal(wrongStatus.response.status, 409);
+  const secondStillActive = await call(api, `/api/super-admin/events/${second.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(secondStillActive.payload.event.status, 'active');
+
+  const firstTrashed = await setSuperAdminStatus(api, session, firstDetail.payload.event, 'trashed');
+  const secondTrashed = await setSuperAdminStatus(api, session, secondDetail.payload.event, 'trashed');
+  const firstPreview = await call(api, `/api/super-admin/events/${first.payload.eventId}/purge-preview`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify(eventConfirmation(firstTrashed.payload.event)),
+  });
+  assert.equal(firstPreview.response.status, 200);
+
+  const crossPurge = await call(api, `/api/super-admin/events/${second.payload.eventId}/purge`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      confirmationToken: firstPreview.payload.confirmationToken,
+      confirmPhrase: `ELIMINA ${second.payload.eventId}`,
+    }),
+  });
+  assert.equal(crossPurge.response.status, 400);
+  assert.equal((await call(api, `/api/super-admin/events/${first.payload.eventId}`, { headers: { Cookie: session.cookie } })).response.status, 200);
+  assert.equal((await call(api, `/api/super-admin/events/${second.payload.eventId}`, { headers: { Cookie: session.cookie } })).response.status, 200);
+  assert.equal(secondTrashed.payload.event.status, 'trashed');
+});
+
+test('il purge crea e verifica un backup del record e delle foto prima della cancellazione', async () => {
+  const { api, dataStore, mediaStore } = setup(superAdminEnv());
+  const creation = await createParty(api);
+  const admin = await call(api, `/api/admin/${tokenFrom(creation.payload.adminPath)}`);
+  const participant = admin.payload.event.participants[0];
+  const form = new FormData();
+  form.append('wish', 'Test backup');
+  form.append('mood', '🎄');
+  form.append('interests', '[]');
+  form.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00])], { type: 'image/jpeg' }), 'backup.jpg');
+  assert.equal((await call(api, `/api/participant/${tokenFrom(participant.path)}/profile`, { method: 'POST', body: form })).response.status, 200);
+
+  const eventRecordKey = `event/${creation.payload.eventId}`;
+  const originalEvent = dataStore.raw(eventRecordKey);
+  const originalPhotoToken = originalEvent.participants.find((item) => item.id === participant.id).photoToken;
+  assert.ok(originalPhotoToken);
+
+  const session = await loginSuperAdmin(api);
+  const detail = await call(api, `/api/super-admin/events/${creation.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  const trashed = await setSuperAdminStatus(api, session, detail.payload.event, 'trashed');
+  const preview = await call(api, `/api/super-admin/events/${creation.payload.eventId}/purge-preview`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify(eventConfirmation(trashed.payload.event)),
+  });
+  const purged = await call(api, `/api/super-admin/events/${creation.payload.eventId}/purge`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      confirmationToken: preview.payload.confirmationToken,
+      confirmPhrase: preview.payload.phrase,
+    }),
+  });
+  assert.equal(purged.response.status, 200);
+  assert.equal(purged.payload.backup.photoCount, 1);
+  const manifest = dataStore.raw(purged.payload.backup.key);
+  assert.equal(manifest.version, 2);
+  assert.equal(manifest.event.id, creation.payload.eventId);
+  assert.equal(manifest.photos.length, 1);
+  assert.ok(mediaStore.keys().includes(manifest.photos[0].backupKey));
+  assert.equal(mediaStore.keys().includes(originalPhotoToken), false);
+  assert.equal(dataStore.keys().includes(eventRecordKey), false);
+});
+
+test('se una cancellazione si interrompe, la stanza viene ripristinata automaticamente dal backup', async () => {
+  const { api, dataStore } = setup(superAdminEnv());
+  const creation = await createParty(api);
+  const session = await loginSuperAdmin(api);
+  const detail = await call(api, `/api/super-admin/events/${creation.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  const trashed = await setSuperAdminStatus(api, session, detail.payload.event, 'trashed');
+  const preview = await call(api, `/api/super-admin/events/${creation.payload.eventId}/purge-preview`, {
+    method: 'POST',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify(eventConfirmation(trashed.payload.event)),
+  });
+
+  const originalDelete = dataStore.delete.bind(dataStore);
+  let simulated = false;
+  dataStore.delete = async (key) => {
+    if (!simulated && key === `event/${creation.payload.eventId}`) {
+      simulated = true;
+      throw new Error('errore simulato durante il purge');
+    }
+    return originalDelete(key);
+  };
+
+  const failed = await call(api, `/api/super-admin/events/${creation.payload.eventId}/purge`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      confirmationToken: preview.payload.confirmationToken,
+      confirmPhrase: preview.payload.phrase,
+    }),
+  });
+  assert.equal(failed.response.status, 500);
+  assert.match(failed.payload.error, /ripristinata dal backup/i);
+
+  const restored = await call(api, `/api/super-admin/events/${creation.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(restored.response.status, 200);
+  assert.equal(restored.payload.event.status, 'trashed');
+  assert.ok(dataStore.keys().some((key) => key.startsWith(`backup/deleted/${creation.payload.eventId}/`)));
+});
+
+test('le voci orfane possono essere rimosse dal catalogo senza cancellare altri eventi', async () => {
+  const { api, dataStore } = setup(superAdminEnv());
+  const orphaned = await createParty(api);
+  const healthy = await createParty(api);
+  const session = await loginSuperAdmin(api);
+  await dataStore.delete(`event/${orphaned.payload.eventId}`);
+
+  const orphan = await call(api, `/api/super-admin/orphans/${orphaned.payload.eventId}`, {
+    headers: { Cookie: session.cookie },
+  });
+  assert.equal(orphan.response.status, 200);
+  assert.equal(orphan.payload.orphan.catalog.name, 'Natale Test');
+
+  const wrong = await call(api, `/api/super-admin/orphans/${orphaned.payload.eventId}`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ confirmId: orphaned.payload.eventId, confirmName: 'Nome errato' }),
+  });
+  assert.equal(wrong.response.status, 409);
+
+  const removed = await call(api, `/api/super-admin/orphans/${orphaned.payload.eventId}`, {
+    method: 'DELETE',
+    headers: superAdminHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ confirmId: orphaned.payload.eventId, confirmName: 'Natale Test' }),
+  });
+  assert.equal(removed.response.status, 200);
+  assert.equal(removed.payload.removed, true);
+
+  const overview = await call(api, '/api/super-admin/overview', { headers: { Cookie: session.cookie } });
+  assert.equal(overview.payload.rooms.some((room) => room.id === orphaned.payload.eventId), false);
+  assert.equal(overview.payload.rooms.some((room) => room.id === healthy.payload.eventId), true);
 });
 
 test('impostazioni globali: creazione, manutenzione e foto possono essere sospese separatamente', async () => {

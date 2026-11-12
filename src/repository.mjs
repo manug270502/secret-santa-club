@@ -27,6 +27,14 @@ function eventKey(eventId) {
   return `${EVENT_PREFIX}${eventId}`;
 }
 
+function purgeBackupKey(eventId, backupId) {
+  return `${BACKUP_PREFIX}${eventId}/${backupId}`;
+}
+
+function purgeBackupMediaKey(eventId, backupId, photoToken) {
+  return `${BACKUP_PREFIX}${eventId}/${backupId}/${photoToken}`;
+}
+
 function indexKey(kind, value) {
   return `${INDEX_PREFIX}${kind}/${value}`;
 }
@@ -665,10 +673,13 @@ export class SecretSantaRepository {
     await this.dataStore.delete(`${LOGIN_PREFIX}${identifier}`);
   }
 
-  async setEventStatus(eventId, status, reason = '') {
+  async setEventStatus(eventId, status, reason = '', { expectedUpdatedAt = '' } = {}) {
     const allowed = new Set(['active', 'blocked', 'completed', 'archived', 'trashed']);
     if (!allowed.has(status)) throw new HttpError(400, 'Stato della stanza non valido.');
     return this.mutateEvent(eventId, (event) => {
+      if (expectedUpdatedAt && event.updatedAt !== expectedUpdatedAt) {
+        throw new HttpError(409, 'La stanza è cambiata nel frattempo. Riaprila prima di modificare lo stato.', 'EVENT_CHANGED');
+      }
       const previous = eventStatus(event);
       if (status === 'trashed') {
         event.previousStatus = previous === 'trashed' ? event.previousStatus || 'active' : previous;
@@ -688,13 +699,16 @@ export class SecretSantaRepository {
     }, { syncRecovery: true });
   }
 
-  async restoreEvent(eventId) {
+  async restoreEvent(eventId, { expectedUpdatedAt = '' } = {}) {
     const event = await this.getEventById(eventId, { consistency: 'strong' });
     if (!event) return null;
+    if (expectedUpdatedAt && event.updatedAt !== expectedUpdatedAt) {
+      throw new HttpError(409, 'La stanza è cambiata nel frattempo. Riaprila prima di ripristinarla.', 'EVENT_CHANGED');
+    }
     const status = event.status === 'trashed' && ['active', 'blocked', 'completed', 'archived'].includes(event.previousStatus)
       ? event.previousStatus
       : 'active';
-    return this.setEventStatus(eventId, status, '');
+    return this.setEventStatus(eventId, status, '', { expectedUpdatedAt: event.updatedAt });
   }
 
   async regenerateRecoveryCode(eventId, participantId) {
@@ -858,67 +872,158 @@ export class SecretSantaRepository {
 
   async createPurgeBackup(event) {
     const now = new Date().toISOString();
-    const key = `${BACKUP_PREFIX}${event.id}/${now.replace(/[:.]/g, '-')}-${token(6)}`;
-    const backup = { version: 1, createdAt: now, reason: 'pre-purge', event: clone(event) };
-    const write = await this.dataStore.setJSON(key, backup, {
-      onlyIfNew: true,
-      metadata: { type: 'event-backup', eventId: event.id, eventName: event.name, createdAt: now },
-    });
-    if (!write.modified) throw new HttpError(500, 'Backup di sicurezza non creato. Eliminazione annullata.');
-    const verify = await this.dataStore.get(key, { type: 'json', consistency: 'strong' });
-    if (!verify?.event || verify.event.id !== event.id || verify.event.name !== event.name) {
-      throw new HttpError(500, 'Backup di sicurezza non verificabile. Eliminazione annullata.');
+    const backupId = `${now.replace(/[:.]/g, '-')}-${token(6)}`;
+    const key = purgeBackupKey(event.id, backupId);
+    const copiedMediaKeys = [];
+    const photos = [];
+
+    try {
+      for (const participant of event.participants) {
+        if (!participant.photoToken) continue;
+        const original = await this.mediaStore.getWithMetadata(participant.photoToken, {
+          type: 'arrayBuffer',
+          consistency: 'strong',
+        });
+        if (!original) {
+          photos.push({
+            participantId: participant.id,
+            originalToken: participant.photoToken,
+            missing: true,
+          });
+          continue;
+        }
+        const backupKey = purgeBackupMediaKey(event.id, backupId, participant.photoToken);
+        const write = await this.mediaStore.set(backupKey, original.data, {
+          onlyIfNew: true,
+          metadata: {
+            ...(original.metadata || {}),
+            type: 'purge-backup-photo',
+            eventId: event.id,
+            eventName: event.name,
+            participantId: participant.id,
+            originalToken: participant.photoToken,
+            backupId,
+            createdAt: now,
+          },
+        });
+        if (!write.modified) throw new Error(`Copia foto non creata: ${participant.photoToken}`);
+        copiedMediaKeys.push(backupKey);
+        const verifyPhoto = await this.mediaStore.getWithMetadata(backupKey, {
+          type: 'arrayBuffer',
+          consistency: 'strong',
+        });
+        if (!verifyPhoto || verifyPhoto.data.byteLength !== original.data.byteLength) {
+          throw new Error(`Copia foto non verificabile: ${participant.photoToken}`);
+        }
+        photos.push({
+          participantId: participant.id,
+          originalToken: participant.photoToken,
+          backupKey,
+          metadata: original.metadata || {},
+          byteLength: original.data.byteLength,
+          missing: false,
+        });
+      }
+
+      const backup = {
+        version: 2,
+        backupId,
+        createdAt: now,
+        reason: 'pre-purge',
+        event: clone(event),
+        photos,
+      };
+      const write = await this.dataStore.setJSON(key, backup, {
+        onlyIfNew: true,
+        metadata: {
+          type: 'event-backup',
+          eventId: event.id,
+          eventName: event.name,
+          backupId,
+          createdAt: now,
+          photoCount: photos.filter((photo) => !photo.missing).length,
+        },
+      });
+      if (!write.modified) throw new Error('Manifest di backup non creato.');
+      const verify = await this.dataStore.get(key, { type: 'json', consistency: 'strong' });
+      if (!verify?.event || verify.event.id !== event.id || verify.event.name !== event.name || verify.backupId !== backupId) {
+        throw new Error('Manifest di backup non verificabile.');
+      }
+      return {
+        key,
+        backupId,
+        createdAt: now,
+        photoCount: photos.filter((photo) => !photo.missing).length,
+        missingPhotoCount: photos.filter((photo) => photo.missing).length,
+        manifest: backup,
+      };
+    } catch (error) {
+      await Promise.allSettled(copiedMediaKeys.map((mediaKey) => this.mediaStore.delete(mediaKey)));
+      await this.dataStore.delete(key).catch(() => {});
+      throw new HttpError(500, 'Backup di sicurezza non completato. Eliminazione annullata.', 'PURGE_BACKUP_FAILED');
     }
-    return { key, createdAt: now };
   }
 
-  async diagnoseEvent(eventId) {
-    const [event, catalog, dataListing, mediaListing, audit] = await Promise.all([
+  async restoreEventFromPurgeBackup(backup) {
+    const event = clone(backup.event);
+    await this.dataStore.setJSON(eventKey(event.id), event, {
+      metadata: { type: 'event', restoredFromBackupAt: new Date().toISOString() },
+    });
+    await this.dataStore.setJSON(indexKey('admin', event.adminToken), { eventId: event.id }, {
+      metadata: { type: 'index', restoredFromBackupAt: new Date().toISOString() },
+    });
+    await this.dataStore.setJSON(indexKey('public', event.publicToken), { eventId: event.id }, {
+      metadata: { type: 'index', restoredFromBackupAt: new Date().toISOString() },
+    });
+    for (const participant of event.participants) {
+      await this.dataStore.setJSON(indexKey('participant', participant.token), {
+        eventId: event.id,
+        participantId: participant.id,
+      }, { metadata: { type: 'index', restoredFromBackupAt: new Date().toISOString() } });
+    }
+    for (const photo of backup.photos || []) {
+      if (photo.missing || !photo.backupKey || !photo.originalToken) continue;
+      const stored = await this.mediaStore.getWithMetadata(photo.backupKey, {
+        type: 'arrayBuffer',
+        consistency: 'strong',
+      });
+      if (!stored) continue;
+      await this.mediaStore.set(photo.originalToken, stored.data, {
+        metadata: {
+          ...(photo.metadata || stored.metadata || {}),
+          restoredFromBackupAt: new Date().toISOString(),
+        },
+      });
+    }
+    await this.syncPhoneIndexesForEvent(event);
+    await this.upsertCatalogSummary(event);
+    return event;
+  }
+
+  async getOrphanCatalogEntry(eventId) {
+    const [event, catalog, backups] = await Promise.all([
       this.getEventById(eventId, { consistency: 'strong' }),
       this.dataStore.get(CATALOG_KEY, { type: 'json', consistency: 'strong' }),
-      typeof this.dataStore.list === 'function' ? this.dataStore.list({}) : { blobs: [] },
-      typeof this.mediaStore.list === 'function' ? this.mediaStore.list({}) : { blobs: [] },
-      this.listAudit({ limit: 500 }),
+      this.listPurgeBackups(eventId),
     ]);
-
-    // Recovery legacy v4/v5: scan every data key, not only index/*, because old
-    // deployments may have left records under keys the v6 catalog does not know.
-    const dataHits = [];
-    const metadataHits = [];
-    for (const blob of dataListing?.blobs || []) {
-      const metadataText = JSON.stringify(blob?.metadata || {});
-      if (metadataText.includes(eventId)) metadataHits.push(blob.key);
-      if (blob.key === CATALOG_KEY || blob.key.startsWith(AUDIT_PREFIX) || blob.key.startsWith(BACKUP_PREFIX)) continue;
-      const value = await this.dataStore.get(blob.key, { type: 'json', consistency: 'eventual' }).catch(() => null);
-      const text = JSON.stringify(value || {});
-      if (text.includes(eventId)) dataHits.push(blob.key);
-    }
-
-    const indexHits = dataHits.filter((key) => key.startsWith(INDEX_PREFIX));
-    const legacyDataHits = dataHits.filter((key) => !key.startsWith(INDEX_PREFIX) && key !== eventKey(eventId));
-    const mediaHits = (mediaListing?.blobs || []).filter((blob) => {
-      const metadataText = JSON.stringify(blob?.metadata || {});
-      return blob?.metadata?.eventId === eventId || metadataText.includes(eventId) || String(blob?.key || '').includes(eventId);
-    }).map((blob) => blob.key);
-    const auditHits = audit.filter((entry) => entry.eventId === eventId || JSON.stringify(entry).includes(eventId));
-    const catalogEntry = catalog?.entries?.[eventId] || null;
     return {
-      scanVersion: 2,
-      eventId,
       eventPresent: Boolean(event),
-      catalog: catalogEntry,
-      indexKeys: indexHits,
-      legacyDataKeys: legacyDataHits,
-      metadataKeys: [...new Set(metadataHits)],
-      mediaKeys: mediaHits,
-      audit: auditHits,
-      catalogLegacyHint: catalogEntry?.searchText || '',
-      scanned: {
-        dataKeys: (dataListing?.blobs || []).length,
-        mediaKeys: (mediaListing?.blobs || []).length,
-      },
-      recoverableFromBackup: await this.listPurgeBackups(eventId),
+      catalog: catalog?.entries?.[eventId] || null,
+      backups,
     };
+  }
+
+  async removeOrphanCatalogEntry(eventId, expectedName) {
+    const event = await this.getEventById(eventId, { consistency: 'strong' });
+    if (event) throw new HttpError(409, 'La stanza esiste ancora: la voce non è orfana.', 'EVENT_NOT_ORPHANED');
+    const catalog = await this.dataStore.get(CATALOG_KEY, { type: 'json', consistency: 'strong' });
+    const entry = catalog?.entries?.[eventId] || null;
+    if (!entry) return { removed: false, entry: null };
+    if (cleanText(expectedName, 120) !== entry.name) {
+      throw new HttpError(409, 'Il nome della voce è cambiato. Aggiorna il Control Center.', 'ORPHAN_CHANGED');
+    }
+    const outcome = await this.removeCatalogEntry(eventId);
+    return { removed: Boolean(outcome?.result?.removed), entry: clone(entry) };
   }
 
   async listPurgeBackups(eventId) {
@@ -927,27 +1032,49 @@ export class SecretSantaRepository {
     return (result?.blobs || []).map((blob) => ({ key: blob.key, metadata: blob.metadata || null }));
   }
 
-  async purgeEvent(eventId) {
+  async purgeEvent(eventId, { expectedUpdatedAt = '' } = {}) {
     const event = await this.getEventById(eventId, { consistency: 'strong' });
     if (!event) return null;
+    if (expectedUpdatedAt && event.updatedAt !== expectedUpdatedAt) {
+      throw new HttpError(409, 'La stanza è cambiata dopo la conferma. Eliminazione annullata.', 'EVENT_CHANGED');
+    }
     const backup = await this.createPurgeBackup(event);
-    for (const participant of event.participants) {
-      await this.removePhoneIndexEntry(participant.phone, event.id, participant.id);
+    try {
+      for (const participant of event.participants) {
+        await this.removePhoneIndexEntry(participant.phone, event.id, participant.id);
+      }
+      const indexKeys = [
+        indexKey('admin', event.adminToken),
+        indexKey('public', event.publicToken),
+        ...event.participants.map((participant) => indexKey('participant', participant.token)),
+      ];
+      for (const key of indexKeys) await this.dataStore.delete(key);
+      for (const participant of event.participants) {
+        if (participant.photoToken) await this.deletePhoto(participant.photoToken);
+      }
+      await this.dataStore.delete(eventKey(event.id));
+      const verify = await this.getEventById(event.id, { consistency: 'strong' });
+      if (verify) throw new Error('Il record principale esiste ancora dopo la cancellazione.');
+      await this.removeCatalogEntry(event.id);
+      return {
+        event: clone(event),
+        backup: {
+          key: backup.key,
+          backupId: backup.backupId,
+          createdAt: backup.createdAt,
+          photoCount: backup.photoCount,
+          missingPhotoCount: backup.missingPhotoCount,
+        },
+      };
+    } catch (error) {
+      try {
+        await this.restoreEventFromPurgeBackup(backup.manifest);
+      } catch (restoreError) {
+        console.error('Ripristino automatico purge non completato:', restoreError);
+        throw new HttpError(500, 'Eliminazione interrotta e ripristino automatico non completato. Controlla i log Netlify.', 'PURGE_RESTORE_FAILED');
+      }
+      throw new HttpError(500, 'Eliminazione annullata: la stanza è stata ripristinata dal backup.', 'PURGE_ROLLED_BACK');
     }
-    for (const participant of event.participants) {
-      if (participant.photoToken) await this.deletePhoto(participant.photoToken);
-    }
-    const keys = [
-      indexKey('admin', event.adminToken),
-      indexKey('public', event.publicToken),
-      ...event.participants.map((participant) => indexKey('participant', participant.token)),
-      eventKey(event.id),
-    ];
-    for (const key of keys) await this.dataStore.delete(key);
-    const verify = await this.getEventById(event.id, { consistency: 'strong' });
-    if (verify) throw new HttpError(500, 'Eliminazione non completata: il record principale esiste ancora.');
-    await this.removeCatalogEntry(event.id);
-    return { event: clone(event), backup };
   }
 
   async savePhoto({ bytes, mime, extension, participantId, eventId }) {

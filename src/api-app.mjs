@@ -22,12 +22,14 @@ import { SecretSantaRepository } from './repository.mjs';
 import {
   clearSuperAdminCookie,
   clientAddress,
+  createSuperAdminActionToken,
   createSuperAdminSession,
   maskPhone,
   privacyHash,
   requireSuperAdminCsrf,
   superAdminConfiguration,
   superAdminCookie,
+  verifySuperAdminActionToken,
   verifySuperAdminPassword,
   verifySuperAdminSession,
 } from './super-admin-auth.mjs';
@@ -74,9 +76,11 @@ function textResponse(status, body, contentType, extraHeaders = {}) {
 function errorResponse(error) {
   const status = error instanceof HttpError ? error.status : 500;
   if (!(error instanceof HttpError)) console.error(error);
+  const safeServerCodes = new Set(['PURGE_BACKUP_FAILED', 'PURGE_ROLLED_BACK']);
+  const exposeMessage = status !== 500 || (error instanceof HttpError && safeServerCodes.has(error.code));
   return jsonResponse(status, {
     ok: false,
-    error: status === 500 ? 'Errore interno. Riprova tra poco.' : error.message,
+    error: exposeMessage ? error.message : 'Errore interno. Riprova tra poco.',
     ...(error instanceof HttpError && error.code ? { code: error.code } : {}),
   });
 }
@@ -232,6 +236,20 @@ function roomState(event) {
   return ['active', 'blocked', 'completed', 'archived', 'trashed'].includes(event?.status)
     ? event.status
     : 'active';
+}
+
+function assertSuperAdminEventSnapshot(event, body, { requireUpdatedAt = true } = {}) {
+  if (!event) throw new HttpError(404, 'Evento non trovato.');
+  const confirmId = cleanText(body?.confirmId, 160);
+  const confirmName = cleanText(body?.confirmName, 160);
+  const expectedUpdatedAt = cleanText(body?.expectedUpdatedAt, 80);
+  if (confirmId !== event.id || confirmName !== event.name) {
+    throw new HttpError(409, 'La stanza selezionata non corrisponde più a quella mostrata. Riaprila e riprova.', 'EVENT_SELECTION_MISMATCH');
+  }
+  if (requireUpdatedAt && (!expectedUpdatedAt || expectedUpdatedAt !== event.updatedAt)) {
+    throw new HttpError(409, 'La stanza è stata modificata nel frattempo. Riaprila e riprova.', 'EVENT_CHANGED');
+  }
+  return expectedUpdatedAt;
 }
 
 function roomPolicies(event) {
@@ -428,7 +446,7 @@ export function createApiHandler({
       if (method === 'GET' && ['/health', '/api/health'].includes(pathname)) {
         return jsonResponse(200, {
           ok: true,
-          service: 'secret-santa-club-netlify-v6.1.2',
+          service: 'secret-santa-club-netlify-v6.2.0',
           storage: 'netlify-blobs',
           superAdminConfigured: superAdminConfiguration(env).configured,
         });
@@ -602,7 +620,9 @@ export function createApiHandler({
           const body = await readJson(request);
           const status = cleanText(body.status, 30).toLowerCase();
           const reason = cleanText(body.reason, 180);
-          const outcome = await repository.setEventStatus(eventId, status, reason);
+          const current = await repository.getEventById(eventId, { consistency: 'strong' });
+          const expectedUpdatedAt = assertSuperAdminEventSnapshot(current, body);
+          const outcome = await repository.setEventStatus(eventId, status, reason, { expectedUpdatedAt });
           if (!outcome) throw new HttpError(404, 'Evento non trovato.');
           await repository.appendAudit({
             action: `event_status_${status}`,
@@ -617,7 +637,10 @@ export function createApiHandler({
         match = /^\/api\/super-admin\/events\/([^/]+)\/restore$/.exec(pathname);
         if (match && method === 'POST') {
           const eventId = assertOpaqueToken(match[1], 'Evento');
-          const outcome = await repository.restoreEvent(eventId);
+          const body = await readJson(request);
+          const current = await repository.getEventById(eventId, { consistency: 'strong' });
+          const expectedUpdatedAt = assertSuperAdminEventSnapshot(current, body);
+          const outcome = await repository.restoreEvent(eventId, { expectedUpdatedAt });
           if (!outcome) throw new HttpError(404, 'Evento non trovato.');
           await repository.appendAudit({
             action: 'event_restored',
@@ -668,11 +691,57 @@ export function createApiHandler({
           });
         }
 
-        match = /^\/api\/super-admin\/events\/([^/]+)\/diagnostics$/.exec(pathname);
+        match = /^\/api\/super-admin\/orphans\/([^/]+)$/.exec(pathname);
         if (match && method === 'GET') {
           const eventId = assertOpaqueToken(match[1], 'Evento');
-          const diagnostics = await repository.diagnoseEvent(eventId);
-          return jsonResponse(200, { ok: true, diagnostics });
+          const orphan = await repository.getOrphanCatalogEntry(eventId);
+          if (orphan.eventPresent) throw new HttpError(409, 'La stanza esiste ancora e non è una voce orfana.', 'EVENT_NOT_ORPHANED');
+          if (!orphan.catalog) throw new HttpError(404, 'Voce orfana non trovata.');
+          return jsonResponse(200, { ok: true, orphan });
+        }
+        if (match && method === 'DELETE') {
+          const eventId = assertOpaqueToken(match[1], 'Evento');
+          const body = await readJson(request);
+          if (cleanText(body.confirmId, 160) !== eventId) {
+            throw new HttpError(409, 'La voce selezionata non corrisponde più a quella mostrata.', 'EVENT_SELECTION_MISMATCH');
+          }
+          const result = await repository.removeOrphanCatalogEntry(eventId, cleanText(body.confirmName, 160));
+          if (!result.entry) throw new HttpError(404, 'Voce orfana non trovata.');
+          await repository.appendAudit({
+            action: 'orphan_catalog_removed',
+            actor: session.sub,
+            eventId,
+            eventName: result.entry.name,
+            detail: 'Rimossa soltanto la voce orfana dal catalogo; nessun evento esistente è stato cancellato.',
+          }).catch(() => {});
+          return jsonResponse(200, { ok: true, removed: result.removed });
+        }
+
+        match = /^\/api\/super-admin\/events\/([^/]+)\/purge-preview$/.exec(pathname);
+        if (match && method === 'POST') {
+          const eventId = assertOpaqueToken(match[1], 'Evento');
+          const body = await readJson(request);
+          const event = await repository.getEventById(eventId, { consistency: 'strong' });
+          assertSuperAdminEventSnapshot(event, body);
+          if (roomState(event) !== 'trashed') throw new HttpError(409, 'Sposta prima la stanza nel cestino.');
+          const phrase = `ELIMINA ${event.id}`;
+          const confirmationToken = createSuperAdminActionToken('purge-event', {
+            eventId: event.id,
+            eventName: event.name,
+            updatedAt: event.updatedAt,
+          }, session, env, 300);
+          return jsonResponse(200, {
+            ok: true,
+            confirmationToken,
+            phrase,
+            event: {
+              id: event.id,
+              name: event.name,
+              updatedAt: event.updatedAt,
+              participantCount: event.participants.length,
+              photoCount: event.participants.filter((participant) => participant.photoToken).length,
+            },
+          });
         }
 
         match = /^\/api\/super-admin\/events\/([^/]+)\/purge$/.exec(pathname);
@@ -682,19 +751,25 @@ export function createApiHandler({
           const event = await repository.getEventById(eventId, { consistency: 'strong' });
           if (!event) throw new HttpError(404, 'Evento non trovato.');
           if (roomState(event) !== 'trashed') throw new HttpError(409, 'Sposta prima la stanza nel cestino.');
-          const expectedPhrase = `ELIMINA ${event.name}`;
-          if (cleanText(body.confirmId, 120) !== event.id || cleanText(body.confirmPhrase, 180) !== expectedPhrase) {
+          const confirmation = verifySuperAdminActionToken(body.confirmationToken, 'purge-event', session, env);
+          const expectedPhrase = `ELIMINA ${event.id}`;
+          if (
+            confirmation.eventId !== event.id
+            || confirmation.eventName !== event.name
+            || confirmation.updatedAt !== event.updatedAt
+            || cleanText(body.confirmPhrase, 240) !== expectedPhrase
+          ) {
             throw new HttpError(400, `Conferma non valida. Digita esattamente: ${expectedPhrase}`);
           }
-          const deleted = await repository.purgeEvent(eventId);
+          const deleted = await repository.purgeEvent(eventId, { expectedUpdatedAt: confirmation.updatedAt });
           await repository.appendAudit({
             action: 'event_purged',
             actor: session.sub,
             eventId,
             eventName: deleted.event.name,
-            detail: `Eliminazione definitiva dopo backup ${deleted.backup.key}.`,
-          });
-          return jsonResponse(200, { ok: true });
+            detail: `Eliminazione definitiva dopo backup ${deleted.backup.key}; ${deleted.backup.photoCount} foto copiate.`,
+          }).catch(() => {});
+          return jsonResponse(200, { ok: true, backup: deleted.backup });
         }
 
         match = /^\/api\/super-admin\/events\/([^/]+)\/participants\/([^/]+)\/recovery-code$/.exec(pathname);
@@ -845,7 +920,9 @@ export function createApiHandler({
         if (match && method === 'DELETE') {
           const eventId = assertOpaqueToken(match[1], 'Evento');
           const body = await readJson(request);
-          const outcome = await repository.setEventStatus(eventId, 'trashed', cleanText(body.reason, 180));
+          const current = await repository.getEventById(eventId, { consistency: 'strong' });
+          const expectedUpdatedAt = assertSuperAdminEventSnapshot(current, body);
+          const outcome = await repository.setEventStatus(eventId, 'trashed', cleanText(body.reason, 180), { expectedUpdatedAt });
           if (!outcome) throw new HttpError(404, 'Evento non trovato.');
           await repository.appendAudit({
             action: 'event_trashed',

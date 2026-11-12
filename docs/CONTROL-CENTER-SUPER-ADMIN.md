@@ -1,4 +1,4 @@
-# Control Center super-admin
+# Control Center super-admin - v6.2
 
 ## URL
 
@@ -109,7 +109,23 @@ Tutto funziona normalmente.
 - conserva l'evento e registra una data indicativa di eliminazione dopo 30 giorni;
 - il sistema non elimina automaticamente la stanza;
 - può essere ripristinata;
-- per la cancellazione definitiva occorre digitare esattamente il nome della stanza.
+- il passaggio nel cestino non cancella dati;
+- per la cancellazione definitiva occorre riaprire la stanza dal cestino e digitare `ELIMINA <ID_EVENTO>`;
+- il server verifica ID, nome, versione corrente e un token firmato temporaneo;
+- prima del purge vengono salvati e verificati evento e fotografie;
+- se un passaggio fallisce, il sistema ripristina automaticamente evento, indici, catalogo e foto.
+
+## Protezione dalla stanza sbagliata
+
+Il Control Center non usa piu una selezione globale non verificata durante le operazioni critiche. Quando apri una stanza:
+
+- eventuali richieste precedenti vengono annullate;
+- una risposta arrivata in ritardo non puo sostituire la stanza gia aperta;
+- il pannello conserva uno snapshot con ID, nome, stato e `updatedAt`;
+- chiudere il pannello azzera completamente la selezione;
+- ogni mutazione viene rifiutata dal server se lo snapshot non coincide piu con l'evento corrente.
+
+Una conferma generata per una stanza non puo essere usata per modificarne o cancellarne un'altra.
 
 ## Gestione di una stanza
 
@@ -153,7 +169,7 @@ Riepilogo tabellare dei partecipanti e degli abbinamenti. È pensato per control
 
 Backup completo della stanza, inclusi token e dati interni. Conservalo in un luogo privato e non inviarlo nel gruppo WhatsApp.
 
-L'importazione automatica del JSON non è inclusa nella v6; il file è un backup tecnico e può essere usato per un ripristino assistito.
+L'importazione automatica del JSON non è inclusa; il file è un backup tecnico e può essere usato per un ripristino assistito.
 
 ## Buone pratiche
 
@@ -162,5 +178,11 @@ L'importazione automatica del JSON non è inclusa nella v6; il file è un backup
 - premi **Esci** al termine;
 - non mostrare abbinamenti o token durante condivisioni schermo;
 - esporta dati soltanto quando necessario e cancellali dopo l'uso;
-- prima di eliminare definitivamente una stanza, scarica il backup JSON;
+- prova sempre il flusso distruttivo su una stanza di test;
+- verifica nome e ID mostrati prima di richiedere il token di cancellazione;
 - conserva almeno una copia del repository prima di un aggiornamento importante.
+
+
+## Voci orfane del catalogo
+
+Una voce orfana e un riepilogo presente nel catalogo senza il relativo record evento. Il pannello la segnala chiaramente e puo rimuovere soltanto la voce riassuntiva. Questa operazione non richiama il purge e non tocca gli altri eventi.

@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const assetVersion = String(packageJson.version || '').trim();
 const required = [
   'netlify.toml',
   'netlify/functions/api.mjs',
@@ -84,8 +86,13 @@ for (const htmlName of ['index.html', 'admin.html', 'my-events.html', 'participa
     console.error(`Script inline non consentito dalla CSP trovato in public/${htmlName}.`);
     process.exit(1);
   }
-  if (!/\/css\/styles\.css\?v=[0-9]+(?:\.[0-9]+){1,2}/.test(html)) {
-    console.error(`Asset CSS non versionato in public/${htmlName}.`);
+  if (!html.includes(`/css/styles.css?v=${assetVersion}`)) {
+    console.error(`Versione CSS non allineata a package.json in public/${htmlName}.`);
+    process.exit(1);
+  }
+  const scriptSources = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => match[1]);
+  if (scriptSources.some((source) => source.startsWith('/js/') && !source.endsWith(`?v=${assetVersion}`))) {
+    console.error(`Versione JavaScript non allineata a package.json in public/${htmlName}.`);
     process.exit(1);
   }
 }
@@ -116,6 +123,6 @@ for (const variable of ['SUPERADMIN_USERNAME', 'SUPERADMIN_PASSWORD_HASH', 'SUPE
   }
 }
 
-console.log('✓ Struttura Netlify v6 verificata: Control Center, frontend, Functions, Blobs e route private pronti.');
+console.log(`✓ Struttura Netlify v${assetVersion} verificata: Control Center, frontend, Functions, Blobs e route private pronti.`);
 console.log(`✓ Sintassi verificata per ${syntaxFiles.length} file JavaScript.`);
 console.log('✓ CSP senza script inline, asset versionati e riferimenti DOM del Control Center verificati.');

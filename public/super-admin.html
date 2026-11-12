@@ -7,9 +7,9 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>Control Center — Secret Santa Club</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/styles.css?v=6.1.0">
-  <script src="/js/common.js?v=6.1.0" defer></script>
-  <script src="/js/super-admin.js?v=6.1.0" defer></script>
+  <link rel="stylesheet" href="/css/styles.css?v=6.2.0">
+  <script src="/js/common.js?v=6.2.0" defer></script>
+  <script src="/js/super-admin.js?v=6.2.0" defer></script>
 </head>
 <body class="page-super-admin">
   <div class="snow-layer super-admin-snow" data-snow aria-hidden="true"></div>
@@ -151,7 +151,6 @@
         <a class="button button-small button-ghost-dark" id="roomOpenPublic" target="_blank" rel="noopener">Apri stanza</a>
         <button class="button button-small button-ghost-dark" id="roomDuplicate" type="button">Duplica</button>
         <button class="button button-small button-ghost-dark" id="roomRepair" type="button">Ripara indici</button>
-        <button class="button button-small button-ghost-dark" id="roomDiagnostics" type="button">Diagnostica storage</button>
         <a class="button button-small button-ghost-dark" id="roomExportCsv">CSV</a>
         <a class="button button-small button-ghost-dark" id="roomExportJson">JSON</a>
       </div>
@@ -162,6 +161,7 @@
         <button class="button button-primary" id="applyRoomStatus" type="button">Applica stato</button>
         <button class="button button-ghost-dark" id="restoreRoom" type="button" hidden>Ripristina</button>
         <button class="button button-danger" id="purgeRoom" type="button" hidden>Elimina definitivamente</button>
+        <small class="room-delete-safety-note">La cancellazione definitiva richiede la riapertura dal cestino, una conferma legata all’ID e un backup verificato.</small>
       </section>
 
       <nav class="room-dialog-tabs" aria-label="Sezioni stanza">

@@ -1,5 +1,5 @@
-SECRET SANTA CLUB - NETLIFY FREE v6.0
-====================================
+SECRET SANTA CLUB - NETLIFY FREE v6.2.0 FINALE
+================================================
 
 AVVIO LOCALE
 1. Apri questa cartella in Visual Studio Code.
@@ -9,6 +9,9 @@ AVVIO LOCALE
 VERIFICA COMPLETA
 npm run check
 
+Risultato atteso:
+22 test superati, 0 falliti.
+
 AGGIORNAMENTO DEL SITO LIVE
 1. Copia questi file nel repository gia collegato a GitHub/Netlify.
 2. Non eliminare la cartella nascosta .git.
@@ -16,13 +19,17 @@ AGGIORNAMENTO DEL SITO LIVE
 
    npm run check
    git add -A
-   git commit -m "Control Center super admin e ottimizzazioni v6"
+   git commit -m "Fix finale cancellazione stanze v6.2"
    git push
+
+4. Attendi che il deploy Netlify diventi Published.
+5. Apri: https://TUO-SITO.netlify.app/api/health?v=620
+6. Verifica: "service":"secret-santa-club-netlify-v6.2.0"
 
 CONTROL CENTER
 URL: https://TUO-SITO.netlify.app/super-admin
 
-Prima del primo accesso configura su Netlify:
+Variabili Netlify richieste:
 - SUPERADMIN_USERNAME
 - SUPERADMIN_PASSWORD_HASH
 - SUPERADMIN_SESSION_SECRET
@@ -34,11 +41,19 @@ npm run superadmin:hash -- 'Una password lunga e unica'
 Genera il segreto:
 node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
 
+CANCELLAZIONE SICURA
+- Il cestino non cancella dati.
+- Per il purge devi riaprire la stanza dal cestino.
+- Il server genera una conferma firmata valida solo per quella stanza.
+- Devi digitare: ELIMINA <ID_EVENTO>
+- Evento e foto vengono salvati e verificati prima del purge.
+- Se il purge fallisce, il sistema ripristina automaticamente i dati.
+
 IMPORTANTE
 - Non inserire mai la password in chiaro su GitHub.
 - Gli store Blob restano secret-santa-data-v2 e secret-santa-media-v2.
-- Gli eventi e le foto esistenti non vengono cancellati.
-- Dopo aver aggiunto o modificato le variabili Netlify, avvia un nuovo deploy.
+- L'aggiornamento non cancella eventi o foto esistenti.
+- Dopo aver modificato le variabili Netlify, avvia un nuovo deploy.
 
 GUIDE
 - README.md

@@ -76,6 +76,10 @@ function signSession(encodedPayload, secret) {
   return crypto.createHmac('sha256', secret).update(encodedPayload).digest('base64url');
 }
 
+function signAction(encodedPayload, secret) {
+  return crypto.createHmac('sha256', secret).update(`super-admin-action:${encodedPayload}`).digest('base64url');
+}
+
 function sessionPayload(username, hours) {
   const now = Math.floor(Date.now() / 1000);
   return {
@@ -118,6 +122,54 @@ export function verifySuperAdminSession(request, env = process.env) {
   const now = Math.floor(Date.now() / 1000);
   if (payload?.v !== SESSION_VERSION || payload?.sub !== config.username || !payload?.csrf || Number(payload?.exp) <= now) {
     throw new HttpError(401, 'La sessione super-admin è scaduta.', 'SUPERADMIN_UNAUTHORIZED');
+  }
+  return payload;
+}
+
+export function createSuperAdminActionToken(action, claims, session, env = process.env, ttlSeconds = 300) {
+  const config = superAdminConfiguration(env);
+  if (!config.configured) throw new HttpError(503, 'Accesso super-admin non ancora configurato.', 'SUPERADMIN_NOT_CONFIGURED');
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    ...claims,
+    v: 1,
+    action: cleanText(action, 80),
+    sub: session?.sub || '',
+    sid: session?.sid || '',
+    iat: now,
+    exp: now + Math.max(30, Math.min(600, Number(ttlSeconds) || 300)),
+    nonce: token(10),
+  };
+  const encoded = toBase64Url(JSON.stringify(payload));
+  return `${encoded}.${signAction(encoded, config.sessionSecret)}`;
+}
+
+export function verifySuperAdminActionToken(value, expectedAction, session, env = process.env) {
+  const config = superAdminConfiguration(env);
+  if (!config.configured) throw new HttpError(503, 'Accesso super-admin non ancora configurato.', 'SUPERADMIN_NOT_CONFIGURED');
+  const [encoded, signature, ...extra] = String(value || '').split('.');
+  if (!encoded || !signature || extra.length) {
+    throw new HttpError(400, 'Conferma di sicurezza non valida. Riapri la stanza e riprova.', 'SUPERADMIN_ACTION_INVALID');
+  }
+  const expected = signAction(encoded, config.sessionSecret);
+  if (!safeEqual(signature, expected)) {
+    throw new HttpError(400, 'Conferma di sicurezza non valida. Riapri la stanza e riprova.', 'SUPERADMIN_ACTION_INVALID');
+  }
+  let payload;
+  try {
+    payload = JSON.parse(fromBase64Url(encoded).toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'Conferma di sicurezza non valida. Riapri la stanza e riprova.', 'SUPERADMIN_ACTION_INVALID');
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    payload?.v !== 1
+    || payload?.action !== expectedAction
+    || payload?.sub !== session?.sub
+    || payload?.sid !== session?.sid
+    || Number(payload?.exp) <= now
+  ) {
+    throw new HttpError(409, 'La conferma è scaduta o appartiene a un’altra sessione. Riapri la stanza.', 'SUPERADMIN_ACTION_EXPIRED');
   }
   return payload;
 }
